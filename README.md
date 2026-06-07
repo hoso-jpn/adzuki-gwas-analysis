@@ -35,8 +35,11 @@ It does **not** claim novel QTL discovery.
 
 ### Manhattan Plot
 
+![Water permeability Manhattan plot](plots/water_permeability_manhattan.png)
 
 ### QQ Plot
+
+![Water permeability QQ plot](plots/water_permeability_qq.png)
 
 
 ### Top Variants by Region
@@ -51,15 +54,25 @@ It does **not** claim novel QTL discovery.
 
 ### Regional Plots
 
-**Chr07: 5-7 Mb**
+### Chr07: 5–7 Mb
 
-**Chr07: 32.0-33.5 Mb**
+![Chr07 5-7 Mb regional plot](plots/water_permeability_Chr07_5_7Mb_regional.png)
 
-**Chr09: 27-30 Mb**
+### Chr07: 32.0–33.5 Mb
 
-**Chr05: 0.5-1.5 Mb**
+![Chr07 32.0-33.5 Mb regional plot](plots/water_permeability_Chr07_32_33_5Mb_regional.png)
 
-**Chr11: 7-17 Mb**
+### Chr09: 27–30 Mb
+
+![Chr09 27-30 Mb regional plot](plots/water_permeability_Chr09_27_30Mb_regional.png)
+
+### Chr05: 0.5–1.5 Mb
+
+![Chr05 0.5-1.5 Mb regional plot](plots/water_permeability_Chr05_0_5_1_5Mb_regional.png)
+
+### Chr11: 7–17 Mb
+
+![Chr11 7-17 Mb regional plot](plots/water_permeability_Chr11_7_17Mb_regional.png)
 
 ---
 
