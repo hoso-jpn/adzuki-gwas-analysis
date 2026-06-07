@@ -1,0 +1,10 @@
+# Large public GWAS summary statistics
+data/raw/*.assoc.txt
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+.vscode/
