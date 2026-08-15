@@ -1,0 +1,62 @@
+[
+  {
+    "dataset_id": "miyagi_water_permeability",
+    "error": null,
+    "filename": "mapped_to_Miyagi_water_permeability.maf_0.05.assoc.txt",
+    "reference": "Miyagi",
+    "row_count": 1741385,
+    "sha256": "1b3b3510fd37a9c8f502b7dbb0450433200afd25750e7ff4e22b8582c05f41d6",
+    "success": true,
+    "trait": "water_permeability"
+  },
+  {
+    "dataset_id": "miyagi_red_seedcoat",
+    "error": null,
+    "filename": "mapped_to_Miyagi_red_seedcoat.maf_0.05.assoc.txt",
+    "reference": "Miyagi",
+    "row_count": 1255203,
+    "sha256": "35005f26da04204163a850981f941b51ea627a53afbeb4fb8b4cfaa4fec6676b",
+    "success": true,
+    "trait": "red_seedcoat"
+  },
+  {
+    "dataset_id": "miyagi_mottled_black_seedcoat",
+    "error": null,
+    "filename": "mapped_to_Miyagi_mottled_black_seedcoat.maf_0.05.assoc.txt",
+    "reference": "Miyagi",
+    "row_count": 1255203,
+    "sha256": "9e51d6d3c6fc13ff42304df0dca91322c36600535703a92329f52913955e379a",
+    "success": true,
+    "trait": "mottled_black_seedcoat"
+  },
+  {
+    "dataset_id": "shumari_water_permeability",
+    "error": null,
+    "filename": "mapped_to_Shumari_water_permeability.maf_0.05.assoc.txt",
+    "reference": "Shumari",
+    "row_count": 1471837,
+    "sha256": "4a163ff2406ec1f9ba99fe56bc533ed9268706ba520f7802474f4069229ca877",
+    "success": true,
+    "trait": "water_permeability"
+  },
+  {
+    "dataset_id": "shumari_red_seedcoat",
+    "error": null,
+    "filename": "mapped_to_Shumari_red_seedcoat.maf_0.05.assoc.txt",
+    "reference": "Shumari",
+    "row_count": 1232183,
+    "sha256": "9d6476bcd671397934e6428b64d6d4934bba5ca82bb873cbc965126b369c45fe",
+    "success": true,
+    "trait": "red_seedcoat"
+  },
+  {
+    "dataset_id": "shumari_mottled_black_seedcoat",
+    "error": null,
+    "filename": "mapped_to_Shumari_mottled_black_seedcoat.maf_0.05.assoc.txt",
+    "reference": "Shumari",
+    "row_count": 1232183,
+    "sha256": "cb6578df51f149a974c651ed5469f4c4ea397e7deeb31f6cace5eeffa203f063",
+    "success": true,
+    "trait": "mottled_black_seedcoat"
+  }
+]
