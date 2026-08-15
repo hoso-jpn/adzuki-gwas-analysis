@@ -1,0 +1,2 @@
+chr	rs	pos	n_miss	allele1	allele0	af	beta	se	logl_H1	l_remle	l_mle	p_wald	pval	p_score
+Chr01	.	0	0	A	G	0.30	0.05	0.01	70.0	30.0	28.0	1e-3	1e-4	1e-5
