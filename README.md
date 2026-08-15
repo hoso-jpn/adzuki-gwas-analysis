@@ -155,6 +155,26 @@ python scripts/04_extract_top_variants_by_region.py
 
 ---
 
+## Input Contract and Validation
+
+[Issue #1](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/1) adds a machine-readable
+manifest (`manifest.toml`) and a schema validator (`src/adzuki_gwas_analysis/`) covering all
+6 GWAS summary-statistics files in the Dryad dataset above (3 traits x 2 reference genomes:
+Miyagi, Shumari). See [`docs/gwas_input_contract.md`](docs/gwas_input_contract.md) for the
+full contract: the 6-dataset list, why Miyagi/Shumari (and Longxiaodou 4, used by
+[adzuki-snp-pipeline](https://github.com/hoso-jpn/adzuki-snp-pipeline)) are not
+interchangeable coordinate systems, why `pval` is the likelihood-ratio-test p-value used as
+this repository's primary statistic, how to obtain and checksum-verify the raw data, and how
+to run the validator. Raw data is never committed to this repository. This Issue does not
+migrate the existing scripts above to use the new validator/loader; that remains a follow-up.
+
+```bash
+uv sync --locked
+uv run adzuki-gwas-validate --manifest manifest.toml --data-dir data/raw
+```
+
+---
+
 ## Related Repositories
 
 - [adzuki-snp-pipeline](https://github.com/hoso-jpn/adzuki-snp-pipeline)
