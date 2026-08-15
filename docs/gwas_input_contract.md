@@ -89,11 +89,14 @@ anything in this repository yet.
 The archive is not distributed by this repository (see
 [Raw data is never committed](#raw-data-is-never-committed) below). To obtain it:
 
-1. Download `adzuki_GWAS_data.zip` from the Dryad dataset page above (or via Dryad's
-   public API, `GET /api/v2/versions/356599/files` to find the current download link).
-   As of this writing, Dryad's direct download API endpoints required a browser session
-   to authorize; if a direct API/curl download returns `401`/`403`, use the Dryad web UI
-   instead.
+1. Download `adzuki_GWAS_data.zip` from the Dryad dataset page above (`GET
+   /api/v2/versions/356599/files` finds the current per-file download link). Dryad's file
+   download API requires an `Authorization: Bearer <token>` header, per its own published
+   API documentation. This repository does not use any Dryad API credential; the archive
+   used here was obtained through the Dryad web UI instead, without inspecting how the UI
+   itself authorizes its downloads (session cookie, signed URL, or otherwise). A direct,
+   unauthenticated API/curl download attempt returns `401`/`403`, consistent with the
+   documented Bearer-token requirement, not evidence of anything beyond that.
 2. Verify the archive's SHA-256 against `[archive].sha256` in `manifest.toml` (see
    [Checksum verification](#checksum-verification) below) before extracting anything.
 3. Extract the 6 `.assoc.txt` members into `data/raw/` (already `.gitignore`d).
