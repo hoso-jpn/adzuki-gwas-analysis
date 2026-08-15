@@ -6,17 +6,75 @@ trait, expected checksum, expected row count), and what the three p-value
 columns mean. Nothing in this module downloads or reads GWAS data files
 themselves -- see :mod:`adzuki_gwas_analysis.loader` and
 :mod:`adzuki_gwas_analysis.validate` for that.
+
+Schema v1's dataset contract -- exactly these 6 (reference, trait) pairs,
+each with one canonical ``dataset_id`` and ``member_filename`` -- is
+enforced here as data (:data:`SCHEMA_V1_DATASETS`), not just documented in
+prose. A manifest with 1, 5, or 7 datasets, an unrecognized trait, a
+reference/trait pair that doesn't match its own ``dataset_id``, or a
+non-canonical ``member_filename`` all fail :func:`load_manifest` (PR #2
+review, P1-1).
 """
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from adzuki_gwas_analysis.errors import ManifestError
 
 SUPPORTED_SCHEMA_VERSION = 1
+
+REQUIRED_REFERENCES: tuple[str, ...] = ("Miyagi", "Shumari")
+REQUIRED_TRAITS: tuple[str, ...] = (
+    "water_permeability",
+    "red_seedcoat",
+    "mottled_black_seedcoat",
+)
+
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalDatasetSpec:
+    """The one correct ``dataset_id``/``member_filename`` for a (reference, trait) pair."""
+
+    dataset_id: str
+    member_filename: str
+
+
+# Schema v1's closed dataset contract: exactly these 6 (reference, trait)
+# pairs exist, each with exactly one canonical dataset_id and
+# member_filename -- "6 datasets, no more, no less" is Issue #1's own
+# explicit deliverable, so it is data here, not just prose.
+SCHEMA_V1_DATASETS: dict[tuple[str, str], CanonicalDatasetSpec] = {
+    ("Miyagi", "water_permeability"): CanonicalDatasetSpec(
+        dataset_id="miyagi_water_permeability",
+        member_filename="mapped_to_Miyagi_water_permeability.maf_0.05.assoc.txt",
+    ),
+    ("Miyagi", "red_seedcoat"): CanonicalDatasetSpec(
+        dataset_id="miyagi_red_seedcoat",
+        member_filename="mapped_to_Miyagi_red_seedcoat.maf_0.05.assoc.txt",
+    ),
+    ("Miyagi", "mottled_black_seedcoat"): CanonicalDatasetSpec(
+        dataset_id="miyagi_mottled_black_seedcoat",
+        member_filename="mapped_to_Miyagi_mottled_black_seedcoat.maf_0.05.assoc.txt",
+    ),
+    ("Shumari", "water_permeability"): CanonicalDatasetSpec(
+        dataset_id="shumari_water_permeability",
+        member_filename="mapped_to_Shumari_water_permeability.maf_0.05.assoc.txt",
+    ),
+    ("Shumari", "red_seedcoat"): CanonicalDatasetSpec(
+        dataset_id="shumari_red_seedcoat",
+        member_filename="mapped_to_Shumari_red_seedcoat.maf_0.05.assoc.txt",
+    ),
+    ("Shumari", "mottled_black_seedcoat"): CanonicalDatasetSpec(
+        dataset_id="shumari_mottled_black_seedcoat",
+        member_filename="mapped_to_Shumari_mottled_black_seedcoat.maf_0.05.assoc.txt",
+    ),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,19 +157,87 @@ def _require_int(table: dict[str, object], key: str, *, dataset_id: str | None =
     return value
 
 
+def _require_positive_int(
+    table: dict[str, object], key: str, *, dataset_id: str | None = None
+) -> int:
+    value = _require_int(table, key, dataset_id=dataset_id)
+    if value <= 0:
+        raise ManifestError(
+            f"field {key!r} must be a positive integer, got {value}", dataset_id=dataset_id
+        )
+    return value
+
+
+def _require_sha256(table: dict[str, object], key: str, *, dataset_id: str | None = None) -> str:
+    value = _require_str(table, key, dataset_id=dataset_id)
+    if not _SHA256_RE.fullmatch(value):
+        raise ManifestError(
+            f"field {key!r} must be a lowercase 64-character hexadecimal SHA-256 digest, "
+            f"got {value!r}",
+            dataset_id=dataset_id,
+        )
+    return value
+
+
+def _require_simple_filename(
+    table: dict[str, object],
+    key: str,
+    *,
+    expected_suffix: str,
+    dataset_id: str | None = None,
+) -> str:
+    """Require ``table[key]`` to be a plain, safe basename ending in ``expected_suffix``.
+
+    Rejects absolute paths, ``..`` traversal, any path separator, and the
+    wrong file extension -- a manifest is not allowed to point outside the
+    data directory it will be resolved against.
+    """
+    value = _require_str(table, key, dataset_id=dataset_id)
+    if PurePosixPath(value).is_absolute() or value.startswith(("/", "\\")):
+        raise ManifestError(
+            f"field {key!r} must not be an absolute path: {value!r}", dataset_id=dataset_id
+        )
+    if "/" in value or "\\" in value:
+        raise ManifestError(
+            f"field {key!r} must be a plain filename with no path separators: {value!r}",
+            dataset_id=dataset_id,
+        )
+    if ".." in value:
+        raise ManifestError(
+            f"field {key!r} must not contain '..': {value!r}", dataset_id=dataset_id
+        )
+    if not value.endswith(expected_suffix):
+        raise ManifestError(
+            f"field {key!r} must end with {expected_suffix!r}: {value!r}", dataset_id=dataset_id
+        )
+    return value
+
+
 def load_manifest(path: str | Path) -> Manifest:
     """Load and structurally validate the manifest at ``path``.
 
-    Raises :class:`~adzuki_gwas_analysis.errors.ManifestError` if the manifest
-    is missing required fields, declares an unsupported schema version, or
-    contains duplicate ``dataset_id`` entries.
+    Raises :class:`~adzuki_gwas_analysis.errors.ManifestError` for: a
+    missing file; invalid TOML syntax; an unsupported ``schema_version``;
+    any field that is missing, the wrong type, an unsafe/wrongly-suffixed
+    filename, a non-positive size/row-count, or a malformed SHA-256; a
+    ``pvalue_columns.primary`` other than ``"pval"``; and, per schema v1's
+    closed dataset contract (:data:`SCHEMA_V1_DATASETS`): anything other
+    than exactly 6 datasets, an unrecognized reference or trait, a
+    duplicate (reference, trait) pair, or a ``dataset_id``/
+    ``member_filename`` that doesn't match its canonical value for that
+    (reference, trait) pair.
     """
     manifest_path = Path(path)
     if not manifest_path.is_file():
         raise ManifestError(f"manifest file not found: {manifest_path}")
 
-    with manifest_path.open("rb") as fh:
-        raw = tomllib.load(fh)
+    try:
+        with manifest_path.open("rb") as fh:
+            raw = tomllib.load(fh)
+    except tomllib.TOMLDecodeError as exc:
+        raise ManifestError(f"manifest is not valid TOML: {exc}") from exc
+    except OSError as exc:
+        raise ManifestError(f"could not read manifest file: {exc}") from exc
 
     schema_version = _require_int(raw, "schema_version")
     if schema_version != SUPPORTED_SCHEMA_VERSION:
@@ -125,9 +251,9 @@ def load_manifest(path: str | Path) -> Manifest:
         raise ManifestError("field 'dryad' must be a table")
     dryad = DryadInfo(
         doi=_require_str(dryad_raw, "doi"),
-        dataset_id=_require_int(dryad_raw, "dataset_id"),
-        version_id=_require_int(dryad_raw, "version_id"),
-        version_number=_require_int(dryad_raw, "version_number"),
+        dataset_id=_require_positive_int(dryad_raw, "dataset_id"),
+        version_id=_require_positive_int(dryad_raw, "version_id"),
+        version_number=_require_positive_int(dryad_raw, "version_number"),
         publication_doi=_require_str(dryad_raw, "publication_doi"),
     )
 
@@ -135,9 +261,9 @@ def load_manifest(path: str | Path) -> Manifest:
     if not isinstance(archive_raw, dict):
         raise ManifestError("field 'archive' must be a table")
     archive = ArchiveInfo(
-        filename=_require_str(archive_raw, "filename"),
-        size_bytes=_require_int(archive_raw, "size_bytes"),
-        sha256=_require_str(archive_raw, "sha256"),
+        filename=_require_simple_filename(archive_raw, "filename", expected_suffix=".zip"),
+        size_bytes=_require_positive_int(archive_raw, "size_bytes"),
+        sha256=_require_sha256(archive_raw, "sha256"),
     )
 
     pvalue_raw = _require(raw, "pvalue_columns")
@@ -149,10 +275,10 @@ def load_manifest(path: str | Path) -> Manifest:
         p_score=_require_str(pvalue_raw, "p_score"),
         primary=_require_str(pvalue_raw, "primary"),
     )
-    if pvalue_columns.primary not in {"p_wald", "pval", "p_score"}:
+    if pvalue_columns.primary != "pval":
         raise ManifestError(
-            f"pvalue_columns.primary must be one of 'p_wald', 'pval', 'p_score', "
-            f"got {pvalue_columns.primary!r}"
+            f"schema v1 requires pvalue_columns.primary == 'pval' "
+            f"(the likelihood ratio test p-value), got {pvalue_columns.primary!r}"
         )
 
     datasets_raw = _require(raw, "datasets")
@@ -161,6 +287,7 @@ def load_manifest(path: str | Path) -> Manifest:
 
     seen_dataset_ids: set[str] = set()
     seen_member_filenames: set[str] = set()
+    seen_reference_traits: set[tuple[str, str]] = set()
     datasets: list[DatasetEntry] = []
     for entry_raw in datasets_raw:
         if not isinstance(entry_raw, dict):
@@ -170,7 +297,9 @@ def load_manifest(path: str | Path) -> Manifest:
             raise ManifestError("duplicate dataset_id in manifest", dataset_id=dataset_id)
         seen_dataset_ids.add(dataset_id)
 
-        member_filename = _require_str(entry_raw, "member_filename", dataset_id=dataset_id)
+        member_filename = _require_simple_filename(
+            entry_raw, "member_filename", expected_suffix=".assoc.txt", dataset_id=dataset_id
+        )
         if member_filename in seen_member_filenames:
             raise ManifestError(
                 f"duplicate member_filename {member_filename!r} in manifest",
@@ -179,9 +308,38 @@ def load_manifest(path: str | Path) -> Manifest:
         seen_member_filenames.add(member_filename)
 
         reference = _require_str(entry_raw, "reference", dataset_id=dataset_id)
-        if reference not in {"Miyagi", "Shumari"}:
+        if reference not in REQUIRED_REFERENCES:
             raise ManifestError(
-                f"reference must be 'Miyagi' or 'Shumari', got {reference!r}",
+                f"reference must be one of {REQUIRED_REFERENCES}, got {reference!r}",
+                dataset_id=dataset_id,
+            )
+
+        trait = _require_str(entry_raw, "trait", dataset_id=dataset_id)
+        if trait not in REQUIRED_TRAITS:
+            raise ManifestError(
+                f"trait must be one of {REQUIRED_TRAITS}, got {trait!r}",
+                dataset_id=dataset_id,
+            )
+
+        reference_trait = (reference, trait)
+        if reference_trait in seen_reference_traits:
+            raise ManifestError(
+                f"duplicate (reference, trait) combination: {reference_trait!r}",
+                dataset_id=dataset_id,
+            )
+        seen_reference_traits.add(reference_trait)
+
+        canonical = SCHEMA_V1_DATASETS[reference_trait]
+        if dataset_id != canonical.dataset_id:
+            raise ManifestError(
+                f"dataset_id must be {canonical.dataset_id!r} for "
+                f"reference={reference!r}, trait={trait!r}; got {dataset_id!r}",
+                dataset_id=dataset_id,
+            )
+        if member_filename != canonical.member_filename:
+            raise ManifestError(
+                f"member_filename must be {canonical.member_filename!r} for "
+                f"reference={reference!r}, trait={trait!r}; got {member_filename!r}",
                 dataset_id=dataset_id,
             )
 
@@ -189,11 +347,18 @@ def load_manifest(path: str | Path) -> Manifest:
             DatasetEntry(
                 dataset_id=dataset_id,
                 reference=reference,
-                trait=_require_str(entry_raw, "trait", dataset_id=dataset_id),
+                trait=trait,
                 member_filename=member_filename,
-                member_sha256=_require_str(entry_raw, "member_sha256", dataset_id=dataset_id),
-                row_count=_require_int(entry_raw, "row_count", dataset_id=dataset_id),
+                member_sha256=_require_sha256(entry_raw, "member_sha256", dataset_id=dataset_id),
+                row_count=_require_positive_int(entry_raw, "row_count", dataset_id=dataset_id),
             )
+        )
+
+    if len(datasets) != len(SCHEMA_V1_DATASETS):
+        raise ManifestError(
+            f"schema v1 requires exactly {len(SCHEMA_V1_DATASETS)} datasets "
+            f"({', '.join(REQUIRED_REFERENCES)} x {', '.join(REQUIRED_TRAITS)}), "
+            f"got {len(datasets)}"
         )
 
     return Manifest(
