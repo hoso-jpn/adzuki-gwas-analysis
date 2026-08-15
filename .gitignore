@@ -1,9 +1,22 @@
-# Large public GWAS summary statistics
-data/raw/*.assoc.txt
+# Large public GWAS summary statistics and other raw Dryad artifacts
+data/raw/
+data/raw/**
+*.assoc.txt
+
+# Small, deterministic, committed unit-test fixtures are the one
+# intentional exception to the *.assoc.txt raw-data exclusion above.
+!tests/fixtures/*.assoc.txt
 
 # Python cache
 __pycache__/
 *.pyc
+*.egg-info/
+
+# Python virtual environments / tooling caches
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
 
 # OS / editor
 .DS_Store
