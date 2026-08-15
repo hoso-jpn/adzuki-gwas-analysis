@@ -106,6 +106,20 @@ class ValidateRowTests(unittest.TestCase):
         keys = [validate_row(dataset_id="test", path="x", row_number=n, row=r) for n, r in rows]
         self.assertEqual(keys[0], keys[1])
 
+    def test_variant_key_pos_is_an_int_not_a_string(self) -> None:
+        # PR #2 review, P2-1: pos must be normalized to int in the variant
+        # key, or "1000" and "01000" (same position, different string) are
+        # wrongly treated as different variants.
+        row_number, row = _rows("valid.assoc.txt")[0]
+        key = validate_row(dataset_id="test", path="x", row_number=row_number, row=row)
+        self.assertIsInstance(key[1], int)
+
+    def test_pos_1000_and_01000_produce_the_same_variant_key(self) -> None:
+        rows = _rows("duplicate_variant_zero_padded_pos.assoc.txt")
+        keys = [validate_row(dataset_id="test", path="x", row_number=n, row=r) for n, r in rows]
+        self.assertEqual(keys[0], keys[1])
+        self.assertEqual(keys[0][1], 1000)
+
 
 if __name__ == "__main__":
     unittest.main()

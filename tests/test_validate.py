@@ -79,6 +79,16 @@ class ValidateDatasetTests(unittest.TestCase):
         assert result.error is not None
         self.assertIn("duplicate variant", result.error.lower())
 
+    def test_zero_padded_pos_duplicate_fails_end_to_end(self) -> None:
+        # PR #2 review, P2-1: "1000" and "01000" are the same position and
+        # must be caught as a duplicate variant, not silently accepted as
+        # two distinct ones.
+        entry = _entry_for("duplicate_variant_zero_padded_pos.assoc.txt")
+        result = validate_dataset(entry, FIXTURES_DIR)
+        self.assertFalse(result.success)
+        assert result.error is not None
+        self.assertIn("duplicate variant", result.error.lower())
+
     def test_bad_row_fails_end_to_end(self) -> None:
         entry = _entry_for("bad_numeric_pos.assoc.txt")
         result = validate_dataset(entry, FIXTURES_DIR)
