@@ -42,7 +42,7 @@ _PVALUE_COLUMNS: tuple[str, ...] = ("p_wald", "pval", "p_score")
 # beyond being a real, non-NaN, non-infinite number).
 _FINITE_FLOAT_COLUMNS: tuple[str, ...] = ("beta", "se", "logl_H1", "l_remle", "l_mle")
 
-VariantKey = tuple[str, str, str, str]
+VariantKey = tuple[str, int, str, str]
 
 
 def validate_header(*, dataset_id: str, path: str, header: list[str]) -> None:
@@ -245,4 +245,8 @@ def validate_row(*, dataset_id: str, path: str, row_number: int, row: dict[str, 
             reason="must satisfy se >= 0",
         )
 
-    return (chrom, row["pos"].strip(), allele0, allele1)
+    # pos is the already-parsed int (PR #2 review, P2-1): using the raw
+    # string here would fail to detect "1000" and "01000" as the same
+    # variant, since those are different strings but the same integer
+    # position.
+    return (chrom, pos, allele0, allele1)

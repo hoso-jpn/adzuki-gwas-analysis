@@ -121,7 +121,7 @@ class DuplicateVariantError(GwasContractError):
         *,
         dataset_id: str,
         path: str,
-        key: tuple[str, str, str, str],
+        key: tuple[str, int, str, str],
         first_row_number: int,
         duplicate_row_number: int,
     ) -> None:
