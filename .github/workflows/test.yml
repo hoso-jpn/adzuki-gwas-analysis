@@ -19,13 +19,15 @@ jobs:
         run: uv sync --locked
 
       - name: Lint (ruff check)
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts
 
       - name: Format check (ruff format)
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests scripts
 
       - name: Type check (mypy)
         run: uv run mypy src
 
       - name: Unit tests
         run: uv run python -m unittest discover -s tests -v
+        env:
+          MPLBACKEND: Agg
