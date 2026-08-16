@@ -136,6 +136,18 @@ class Manifest:
                 return entry
         raise KeyError(dataset_id)
 
+    def get_by_filename(self, member_filename: str) -> DatasetEntry:
+        """Return the entry whose ``member_filename`` matches, or raise ``KeyError``.
+
+        Used by the legacy ``scripts/03_regional_plot.py`` wrapper, which takes a
+        raw ``--input`` file path rather than a ``dataset_id``, to look up which
+        manifest entry (and therefore which validation) that file corresponds to.
+        """
+        for entry in self.datasets:
+            if entry.member_filename == member_filename:
+                return entry
+        raise KeyError(member_filename)
+
 
 def _require(table: dict[str, object], key: str, *, dataset_id: str | None = None) -> object:
     if key not in table:

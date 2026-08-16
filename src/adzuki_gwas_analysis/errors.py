@@ -113,6 +113,56 @@ class RowValidationError(GwasContractError):
         )
 
 
+class UnknownDatasetIdError(GwasContractError):
+    """A caller asked for a ``dataset_id`` that does not exist in the manifest."""
+
+    def __init__(self, *, dataset_id: str, available: tuple[str, ...]) -> None:
+        self.dataset_id = dataset_id
+        self.available = available
+        super().__init__(
+            f"unknown dataset_id {dataset_id!r}; manifest defines: {', '.join(available)}"
+        )
+
+
+class DatasetValidationFailedError(GwasContractError):
+    """A dataset failed :func:`~adzuki_gwas_analysis.validate.validate_dataset`.
+
+    Raised by analysis entry points so that a failed pre-analysis validation
+    always stops before any plot or TSV is produced, rather than being
+    silently ignored by a caller that forgets to check ``ValidationResult.success``.
+    """
+
+    def __init__(self, *, dataset_id: str, reason: str) -> None:
+        self.dataset_id = dataset_id
+        super().__init__(f"[dataset={dataset_id}] validation failed, no output produced: {reason}")
+
+
+class RegionConfigError(GwasContractError):
+    """A post-hoc visualization region config file is structurally invalid."""
+
+    def __init__(self, message: str, *, region_id: str | None = None) -> None:
+        self.region_id = region_id
+        prefix = f"[region={region_id}] " if region_id else ""
+        super().__init__(f"{prefix}{message}")
+
+
+class EmptyRegionError(GwasContractError):
+    """A configured region contains zero variants in the validated dataset."""
+
+    def __init__(
+        self, *, dataset_id: str, region_id: str, chrom: str, start: int, end: int
+    ) -> None:
+        self.dataset_id = dataset_id
+        self.region_id = region_id
+        self.chrom = chrom
+        self.start = start
+        self.end = end
+        super().__init__(
+            f"[dataset={dataset_id}] region {region_id!r} ({chrom}:{start}-{end}) "
+            f"contains no variants"
+        )
+
+
 class DuplicateVariantError(GwasContractError):
     """The same (chr, pos, allele0, allele1) key appears in more than one row."""
 
