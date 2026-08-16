@@ -1,28 +1,35 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+"""Backward-compatible wrapper: QQ plot for Miyagi water permeability.
 
-FILE = "data/raw/mapped_to_Miyagi_water_permeability.maf_0.05.assoc.txt"
+Thin wrapper around :func:`adzuki_gwas_analysis.analysis.pipeline.run_qq`
+(see Issue #3). Validates the dataset against the schema v1 manifest before
+plotting; produces no output if validation fails -- unlike the original
+version of this script, out-of-range p-values are never silently dropped.
+Equivalent to::
 
-df = pd.read_csv(FILE, sep="\t")
+    uv run adzuki-gwas-analyze qq --output-dir plots
+"""
 
-p = df["pval"].dropna()
-p = p[(p > 0) & (p <= 1)]
+from __future__ import annotations
 
-observed = -np.log10(np.sort(p))
-expected = -np.log10(np.arange(1, len(p) + 1) / (len(p) + 1))
+from pathlib import Path
 
-plt.figure(figsize=(6, 6))
-plt.scatter(expected, observed, s=3, alpha=0.5)
+from adzuki_gwas_analysis.analysis.pipeline import run_qq
 
-max_val = max(expected.max(), observed.max())
-plt.plot([0, max_val], [0, max_val], linestyle="--")
+DATASET_ID = "miyagi_water_permeability"
+MANIFEST_PATH = Path("manifest.toml")
+DATA_DIR = Path("data/raw")
+OUTPUT_PATH = Path("plots/water_permeability_qq.png")
 
-plt.xlabel("Expected -log10(p)")
-plt.ylabel("Observed -log10(p)")
-plt.title("QQ Plot: Water Permeability GWAS")
 
-plt.tight_layout()
-plt.savefig("plots/water_permeability_qq.png", dpi=300)
+def main() -> None:
+    run_qq(
+        manifest_path=MANIFEST_PATH,
+        data_dir=DATA_DIR,
+        dataset_id=DATASET_ID,
+        output_path=OUTPUT_PATH,
+    )
+    print("done")
 
-print("done")
+
+if __name__ == "__main__":
+    main()

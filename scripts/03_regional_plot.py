@@ -1,10 +1,29 @@
+"""Backward-compatible wrapper: regional association plot from GWAS summary statistics.
+
+Thin wrapper around
+:func:`adzuki_gwas_analysis.analysis.pipeline.run_single_regional` (see
+Issue #3). Keeps the exact same ``--input``/``--chrom``/``--start``/
+``--end``/``--output``/``--title`` arguments as before, but now looks up
+``--input`` in the schema v1 manifest and validates it before plotting;
+produces no output if validation fails.
+"""
+
+from __future__ import annotations
+
 import argparse
+import sys
+from pathlib import Path
+
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+
+from adzuki_gwas_analysis.analysis.pipeline import run_single_regional
+from adzuki_gwas_analysis.errors import GwasContractError
+from adzuki_gwas_analysis.manifest import load_manifest
+
+MANIFEST_PATH = Path("manifest.toml")
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(
         description="Create a regional association plot from GWAS summary statistics."
     )
@@ -16,54 +35,52 @@ def main():
     parser.add_argument("--title", default=None, help="Plot title")
     args = parser.parse_args()
 
-    df = pd.read_csv(args.input, sep="\t")
-
-    sub = df[
-        (df["chr"] == args.chrom)
-        & (df["pos"] >= args.start)
-        & (df["pos"] <= args.end)
-    ].copy()
-
-    if sub.empty:
-        raise ValueError(
-            f"No variants found in {args.chrom}:{args.start}-{args.end}"
+    input_path = Path(args.input)
+    manifest = load_manifest(MANIFEST_PATH)
+    try:
+        entry = manifest.get_by_filename(input_path.name)
+    except KeyError:
+        print(
+            f"ERROR: {input_path.name!r} is not a member_filename in {MANIFEST_PATH}; "
+            f"expected one of the schema v1 dataset files",
+            file=sys.stderr,
         )
+        return 1
 
-    sub = sub[(sub["pval"] > 0) & (sub["pval"] <= 1)]
-    sub["minuslog10p"] = -np.log10(sub["pval"])
+    try:
+        outcome = run_single_regional(
+            manifest_path=MANIFEST_PATH,
+            data_dir=input_path.parent,
+            dataset_id=entry.dataset_id,
+            chrom=args.chrom,
+            start=args.start,
+            end=args.end,
+            output_path=Path(args.output),
+            title=args.title,
+            region_id=f"{args.chrom}_{args.start}_{args.end}",
+        )
+    except GwasContractError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
 
-    top = sub.loc[sub["pval"].idxmin()]
-
-    plt.figure(figsize=(8, 4))
-    plt.scatter(
-        sub["pos"],
-        sub["minuslog10p"],
-        s=8,
-        alpha=0.7,
-    )
-
-    plt.axhline(-np.log10(1e-5), linestyle="--")
-    plt.scatter(
-        [top["pos"]],
-        [-np.log10(top["pval"])],
-        s=40,
-        marker="*",
-    )
-
-    plt.xlabel(f"Position on {args.chrom} (bp)")
-    plt.ylabel("-log10(p)")
-    plt.title(
-        args.title
-        or f"Regional Plot: {args.chrom}:{args.start}-{args.end}"
-    )
-
-    plt.tight_layout()
-    plt.savefig(args.output, dpi=300)
-
-    print(f"Saved: {args.output}")
+    print(f"Saved: {outcome.plot.output_path}")
     print("Top variant in region:")
-    print(top[["chr", "pos", "allele1", "allele0", "af", "beta", "pval"]])
+    top = outcome.top_variant
+    print(
+        pd.Series(
+            {
+                "chr": top.chrom,
+                "pos": top.pos,
+                "allele1": top.allele1,
+                "allele0": top.allele0,
+                "af": top.af,
+                "beta": top.beta,
+                "pval": top.pval,
+            }
+        )
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
