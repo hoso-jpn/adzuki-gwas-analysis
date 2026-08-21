@@ -32,8 +32,9 @@ git diff --check
 - `src/adzuki_gwas_analysis/`（manifest / schema / validate / loader）: Dryad入力契約の
   検証層。`loader.py` はストリーミング専用で DataFrame を返さない。
 - `src/adzuki_gwas_analysis/analysis/`: 検証済みデータに対する解析・プロット層。
-  `analysis/loader.py` は検証成功後にのみ呼ばれる別のDataFrame loaderで、この2層分離が
-  「6データセットを同時にメモリへ保持しない」保証の実体。統合しない。
+  `analysis/loader.py` は検証成功後にのみ呼ばれる別のDataFrame loaderで、この2層分離は
+  「validation後に1データセットずつ解析する」設計方針の基盤。呼び出し側も複数DataFrameを
+  同時に保持してはならない（loaderの呼び出し方自体は複数回呼べるため、保証ではなく方針）。統合しない。
 - `scripts/01`-`04`: `analysis/` の薄いbackward-compatibleラッパー。tracked な
   `plots/`/`results/water_permeability/` の既存ファイル名・配置を再現する経路。
 - `adzuki-gwas-analyze`（unified CLI）の `all`/`regions` は単一 `--output-dir` へまとめて
@@ -50,7 +51,9 @@ git diff --check
   複数データセット対応を求められても、ループ内で DataFrame を溜め込まない。
 - tracked な plots/*.png と results/water_permeability/top_variants_by_region.tsv を
   不用意に上書きしない。再生成する場合は legacy wrapper を使い、実行前後で `git status`/
-  `git diff` を確認してから committする。
+  `git diff` を確認してから commitする。
+- results/water_permeability/top_snps.tsv の生成規則は未検証。これを生成したコードは
+  git履歴上に存在しない。推測でこのファイルを変更・再生成しない。
 
 ## 統計・用語（表現の精度に注意する）
 
