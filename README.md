@@ -120,13 +120,19 @@ uv run adzuki-gwas-validate --manifest manifest.toml --data-dir data/raw
 ### Unified CLI: `adzuki-gwas-analyze`
 
 Each of `manhattan`, `qq`, `regions`, and `top-variants` runs schema v1 validation and then
-writes one kind of output under `--output-dir` (or to the exact path passed to `--output`):
+writes one kind of output under `--output-dir` (or to the exact path passed to `--output`).
+None of the examples below write directly into the tracked `plots/`/`results/` directories --
+see "Legacy scripts" below for the wrappers that do:
 
 ```bash
-uv run adzuki-gwas-analyze manhattan --output-dir plots
-uv run adzuki-gwas-analyze qq --output-dir plots
-uv run adzuki-gwas-analyze regions --output-dir plots
-uv run adzuki-gwas-analyze top-variants --output results/water_permeability/top_variants_by_region.tsv
+INDIVIDUAL_OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze manhattan --output-dir "$INDIVIDUAL_OUTPUT_DIR"
+uv run adzuki-gwas-analyze qq --output-dir "$INDIVIDUAL_OUTPUT_DIR"
+uv run adzuki-gwas-analyze regions --output-dir "$INDIVIDUAL_OUTPUT_DIR"
+uv run adzuki-gwas-analyze top-variants \
+  --output "$INDIVIDUAL_OUTPUT_DIR/top_variants_by_region.tsv"
+
+find "$INDIVIDUAL_OUTPUT_DIR" -maxdepth 1 -type f -print
 ```
 
 `adzuki-gwas-analyze all` is a **single-output-directory bundle command**: it validates the
@@ -139,14 +145,14 @@ input once and then writes all of the following under one `--output-dir`, in one
 - `top_variants_by_region.tsv`
 
 It is **not** a reproducer of this README's tracked `plots/`/`results/` layout above -- see
-"Legacy scripts" below for that. Use it by pointing `--output-dir` at a scratch directory
-outside anything tracked by git -- e.g. for a one-pass smoke test of all four outputs
-together:
+"Legacy scripts" below for that. Use a separate scratch directory from the individual
+commands above -- reusing the same directory would let `all`'s bundle output overwrite what
+those just wrote -- e.g. for a one-pass smoke test of all four outputs together:
 
 ```bash
-OUTPUT_DIR="$(mktemp -d)"
-uv run adzuki-gwas-analyze all --output-dir "$OUTPUT_DIR"
-find "$OUTPUT_DIR" -maxdepth 1 -type f -print
+BUNDLE_OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze all --output-dir "$BUNDLE_OUTPUT_DIR"
+find "$BUNDLE_OUTPUT_DIR" -maxdepth 1 -type f -print
 ```
 
 Common flags: `--manifest` (default `manifest.toml`), `--data-dir` (default `data/raw`),
