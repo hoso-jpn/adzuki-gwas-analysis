@@ -119,19 +119,53 @@ uv run adzuki-gwas-validate --manifest manifest.toml --data-dir data/raw
 
 ### Unified CLI: `adzuki-gwas-analyze`
 
+Each of `manhattan`, `qq`, `regions`, and `top-variants` runs schema v1 validation and then
+writes one kind of output under `--output-dir` (or to the exact path passed to `--output`):
+
 ```bash
 uv run adzuki-gwas-analyze manhattan --output-dir plots
 uv run adzuki-gwas-analyze qq --output-dir plots
 uv run adzuki-gwas-analyze regions --output-dir plots
 uv run adzuki-gwas-analyze top-variants --output results/water_permeability/top_variants_by_region.tsv
+```
 
-# Or all of the above in one pass:
-uv run adzuki-gwas-analyze all --output-dir plots
+`adzuki-gwas-analyze all` is a **single-output-directory bundle command**: it validates the
+input once and then writes all of the following under one `--output-dir`, in one pass --
+
+- `<dataset_id>_manhattan.png`
+- `<dataset_id>_qq.png`
+- one regional PNG per region in `--regions-config`, named by that region's
+  `output_filename`
+- `top_variants_by_region.tsv`
+
+It is **not** a reproducer of this README's tracked `plots/`/`results/` layout above -- see
+"Legacy scripts" below for that. Use it by pointing `--output-dir` at a scratch directory
+outside anything tracked by git -- e.g. for a one-pass smoke test of all four outputs
+together:
+
+```bash
+OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze all --output-dir "$OUTPUT_DIR"
+find "$OUTPUT_DIR" -maxdepth 1 -type f -print
 ```
 
 Common flags: `--manifest` (default `manifest.toml`), `--data-dir` (default `data/raw`),
 `--dataset-id` (default `miyagi_water_permeability`), `--regions-config` (default
 `config/water_permeability_regions.toml`), `--threshold` (default `1e-5`, see below).
+
+**Pointing `--output-dir` directly at `plots` (with the default `--regions-config`):**
+schema validation still runs first, as with every command above, but no tracked-artifact
+equivalence check or overwrite confirmation runs before anything is written. Concretely, for
+`all` or `regions`:
+
+- the 5 regional PNGs are named identically to the tracked files in
+  [`config/water_permeability_regions.toml`](config/water_permeability_regions.toml) and are
+  replaced in place;
+- `all`'s `<dataset_id>_manhattan.png` / `<dataset_id>_qq.png` are added as new,
+  differently-named files -- the tracked `water_permeability_manhattan.png` /
+  `water_permeability_qq.png` are left untouched;
+- `all`'s `top_variants_by_region.tsv` is added directly under `plots/`, not written to
+  `results/water_permeability/top_variants_by_region.tsv`.
 
 ### Legacy scripts (kept as thin backward-compatible wrappers)
 
@@ -144,7 +178,16 @@ Common flags: `--manifest` (default `manifest.toml`), `--data-dir` (default `dat
 
 These scripts are thin wrappers around `src/adzuki_gwas_analysis/analysis/` -- they run the
 same mandatory validation and produce the same output as the unified CLI, and take the exact
-same command-line arguments they always have:
+same command-line arguments they always have. Unlike `adzuki-gwas-analyze all`/`regions` (a
+single-output-directory bundle command meant for a scratch directory -- see above), these
+wrappers are the intended path for regenerating the tracked
+`plots`/`results/water_permeability/` artifacts under their existing names and layout.
+
+Before running them for that purpose, confirm a clean working tree (`git status`); after
+running, review what changed before committing -- e.g. `git diff --stat -- plots results`
+for the PNGs, and a byte-for-byte check such as `cmp` against the pre-existing file for
+`results/water_permeability/top_variants_by_region.tsv` -- rather than committing
+regenerated output unreviewed:
 
 ```bash
 python scripts/01_manhattan_plot.py
@@ -226,11 +269,26 @@ it. It is out of scope here and tracked as a separate, unresolved question.
 
 ### Smoke-testing against real data (developers)
 
-Running `adzuki-gwas-analyze all` against the real `data/raw/` file and comparing the result
-to the tracked `plots/`/`results/` files is a correctness check, not a performance benchmark.
-Any wall-time or peak-memory numbers reported for this repository were measured on a single
-Apple Silicon Mac and are recorded only to confirm the analysis fits comfortably in memory
-(one dataset processed at a time) -- they say nothing about Linux/production performance.
+Smoke-test `adzuki-gwas-analyze all` against the real `data/raw/` file by writing to a
+scratch directory -- never directly to `plots/` or `results/` -- and then compare the
+result against the tracked files:
+
+```bash
+OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze all --output-dir "$OUTPUT_DIR"
+find "$OUTPUT_DIR" -maxdepth 1 -type f -print
+cmp "$OUTPUT_DIR/top_variants_by_region.tsv" \
+    results/water_permeability/top_variants_by_region.tsv
+```
+
+Compare the regional/Manhattan/QQ PNGs under `$OUTPUT_DIR` against the tracked `plots/`
+files by inspection (dimensions and content); this repository does not assert byte-for-byte
+PNG equivalence, only TSV equivalence and PNG dimension/content equivalence.
+
+This is a correctness check, not a performance benchmark. Any wall-time or peak-memory
+numbers reported for this repository were measured on a single Apple Silicon Mac and are
+recorded only to confirm the analysis fits comfortably in memory (one dataset processed at
+a time) -- they say nothing about Linux/production performance.
 
 ---
 
