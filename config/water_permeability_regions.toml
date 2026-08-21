@@ -1,0 +1,55 @@
+# Post-hoc visualization windows for the Miyagi water-permeability GWAS
+# summary statistics, for use with `adzuki-gwas-analyze regions` /
+# `top-variants` / `all`.
+#
+# IMPORTANT: these 5 windows were chosen post-hoc by visual inspection of the
+# genome-wide Manhattan plot. They are NOT independently defined QTL
+# intervals, NOT LD blocks, and NOT the output of any linkage or fine-mapping
+# analysis. Treat them as visualization conveniences only.
+#
+# This file is intentionally separate from manifest.toml: manifest.toml is
+# the Dryad input-contract schema (#1/#2) describing what a correct *input
+# file* looks like; this file describes an arbitrary, human-chosen
+# visualization concern layered on top of one specific validated dataset.
+config_schema_version = 1
+dataset_id = "miyagi_water_permeability"
+
+[[regions]]
+region_id = "Chr07_5_7Mb"
+chrom = "Chr07"
+start = 5_000_000
+end = 7_000_000
+title = "Water Permeability GWAS: Chr07 5-7 Mb"
+output_filename = "water_permeability_Chr07_5_7Mb_regional.png"
+
+[[regions]]
+region_id = "Chr07_32_33_5Mb"
+chrom = "Chr07"
+start = 32_000_000
+end = 33_500_000
+title = "Water Permeability GWAS: Chr07 32.0-33.5 Mb"
+output_filename = "water_permeability_Chr07_32_33_5Mb_regional.png"
+
+[[regions]]
+region_id = "Chr09_27_30Mb"
+chrom = "Chr09"
+start = 27_000_000
+end = 30_000_000
+title = "Water Permeability GWAS: Chr09 27-30 Mb"
+output_filename = "water_permeability_Chr09_27_30Mb_regional.png"
+
+[[regions]]
+region_id = "Chr05_0_5_1_5Mb"
+chrom = "Chr05"
+start = 500_000
+end = 1_500_000
+title = "Water Permeability GWAS: Chr05 0.5-1.5 Mb"
+output_filename = "water_permeability_Chr05_0_5_1_5Mb_regional.png"
+
+[[regions]]
+region_id = "Chr11_7_17Mb"
+chrom = "Chr11"
+start = 7_000_000
+end = 17_000_000
+title = "Water Permeability GWAS: Chr11 7-17 Mb"
+output_filename = "water_permeability_Chr11_7_17Mb_regional.png"

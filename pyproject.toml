@@ -5,15 +5,21 @@ description = "Input contract and validation infrastructure for public adzuki be
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 license = { text = "MIT" }
-dependencies = []
+dependencies = [
+    "matplotlib>=3.11.1",
+    "numpy>=2.4.6",
+    "pandas>=3.0.5",
+]
 
 [project.scripts]
 adzuki-gwas-validate = "adzuki_gwas_analysis.cli:main"
+adzuki-gwas-analyze = "adzuki_gwas_analysis.analysis.cli:main"
 
 [dependency-groups]
 dev = [
     "ruff>=0.6",
     "mypy>=1.11",
+    "pandas-stubs>=3.0.5.260730",
 ]
 
 [build-system]

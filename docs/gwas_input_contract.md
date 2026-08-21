@@ -145,6 +145,12 @@ Issue #1 adds the manifest, validator, and CLI described above. It does **not** 
 migrate the existing analysis scripts (`scripts/01_manhattan_plot.py` through
 `04_extract_top_variants_by_region.py`), and does not change any existing `plots/` or
 `results/water_permeability/` artifact. Migrating those scripts to use this validator/loader
-is tracked as a follow-up issue. `results/water_permeability/top_snps.tsv` also has a known,
-unresolved reproducibility gap (it is not produced by any of the 4 existing scripts) that
-is recorded, not fixed, by Issue #1.
+is tracked as a follow-up issue.
+
+[Issue #3](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/3) is that follow-up: it
+migrates the `miyagi_water_permeability` scripts above onto `validate_dataset()` and adds
+`src/adzuki_gwas_analysis/analysis/` and the `adzuki-gwas-analyze` CLI, without changing the
+schema v1 contract itself. The other 5 datasets are not yet migrated.
+`results/water_permeability/top_snps.tsv` still has a known, unresolved reproducibility gap
+(no script producing it exists anywhere in this repository's git history) that remains
+recorded, not fixed, by Issue #3.

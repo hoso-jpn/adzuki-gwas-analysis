@@ -1,47 +1,45 @@
-import pandas as pd
+"""Backward-compatible wrapper: top-variant-per-region TSV for Miyagi water permeability.
 
-INPUT_FILE = "data/raw/mapped_to_Miyagi_water_permeability.maf_0.05.assoc.txt"
-OUTPUT_FILE = "results/water_permeability/top_variants_by_region.tsv"
+Thin wrapper around
+:func:`adzuki_gwas_analysis.analysis.pipeline.run_top_variants` (see
+Issue #3). Regions now come from
+``config/water_permeability_regions.toml`` rather than being hardcoded here.
+Validates the dataset against the schema v1 manifest before extracting;
+produces no output if validation fails -- unlike the original version of
+this script, which checked ``pval > 0`` but never ``pval <= 1``.
+Equivalent to::
 
-regions = [
-    ("Chr07_5_7Mb", "Chr07", 5_000_000, 7_000_000),
-    ("Chr07_32_33_5Mb", "Chr07", 32_000_000, 33_500_000),
-    ("Chr09_27_30Mb", "Chr09", 27_000_000, 30_000_000),
-    ("Chr05_0_5_1_5Mb", "Chr05", 500_000, 1_500_000),
-    ("Chr11_7_17Mb", "Chr11", 7_000_000, 17_000_000),
-]
+    uv run adzuki-gwas-analyze top-variants \\
+        --output results/water_permeability/top_variants_by_region.tsv
+"""
 
-df = pd.read_csv(INPUT_FILE, sep="\t")
+from __future__ import annotations
 
-rows = []
+from pathlib import Path
 
-for region_name, chrom, start, end in regions:
-    sub = df[
-        (df["chr"] == chrom)
-        & (df["pos"] >= start)
-        & (df["pos"] <= end)
-        & (df["pval"] > 0)
-    ].copy()
+from adzuki_gwas_analysis.analysis.pipeline import run_top_variants
 
-    if sub.empty:
-        raise ValueError(f"No variants found in {chrom}:{start}-{end}")
+DATASET_ID = "miyagi_water_permeability"
+MANIFEST_PATH = Path("manifest.toml")
+DATA_DIR = Path("data/raw")
+REGIONS_CONFIG_PATH = Path("config/water_permeability_regions.toml")
+OUTPUT_PATH = Path("results/water_permeability/top_variants_by_region.tsv")
 
-    top = sub.loc[sub["pval"].idxmin()]
 
-    rows.append({
-        "region": region_name,
-        "chr": top["chr"],
-        "pos": int(top["pos"]),
-        "allele1": top["allele1"],
-        "allele0": top["allele0"],
-        "af": top["af"],
-        "beta": top["beta"],
-        "pval": top["pval"],
-    })
+def main() -> None:
+    table = run_top_variants(
+        manifest_path=MANIFEST_PATH,
+        data_dir=DATA_DIR,
+        dataset_id=DATASET_ID,
+        regions_config_path=REGIONS_CONFIG_PATH,
+        output_path=OUTPUT_PATH,
+    )
+    pd_display = table.copy()
+    pd_display["pval"] = pd_display["pval"].map("{:.3e}".format)
+    pd_display["beta"] = pd_display["beta"].map("{:.3e}".format)
+    print(pd_display.to_string(index=False))
+    print(f"Saved: {OUTPUT_PATH}")
 
-out = pd.DataFrame(rows)
-out.to_csv(OUTPUT_FILE, sep="\t", index=False)
 
-pd.set_option("display.float_format", "{:.3e}".format)
-print(out)
-print(f"Saved: {OUTPUT_FILE}")
+if __name__ == "__main__":
+    main()

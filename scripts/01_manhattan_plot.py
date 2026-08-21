@@ -1,63 +1,33 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+"""Backward-compatible wrapper: genome-wide Manhattan plot for Miyagi water permeability.
 
-FILE = "data/raw/mapped_to_Miyagi_water_permeability.maf_0.05.assoc.txt"
+Thin wrapper around :func:`adzuki_gwas_analysis.analysis.pipeline.run_manhattan`
+(see Issue #3). Validates the dataset against the schema v1 manifest before
+plotting; produces no output if validation fails. Equivalent to::
 
-df = pd.read_csv(FILE, sep="\t")
+    uv run adzuki-gwas-analyze manhattan --output-dir plots
+"""
 
-df["minuslog10p"] = -np.log10(df["pval"])
+from __future__ import annotations
 
-chroms = sorted(df["chr"].unique())
+from pathlib import Path
 
-x = []
-xticks = []
-xticklabels = []
+from adzuki_gwas_analysis.analysis.pipeline import run_manhattan
 
-offset = 0
+DATASET_ID = "miyagi_water_permeability"
+MANIFEST_PATH = Path("manifest.toml")
+DATA_DIR = Path("data/raw")
+OUTPUT_PATH = Path("plots/water_permeability_manhattan.png")
 
-for chrom in chroms:
-    sub = df[df["chr"] == chrom].copy()
 
-    sub["x"] = sub["pos"] + offset
-
-    plt.scatter(
-        sub["x"],
-        sub["minuslog10p"],
-        s=2,
-        alpha=0.6
+def main() -> None:
+    run_manhattan(
+        manifest_path=MANIFEST_PATH,
+        data_dir=DATA_DIR,
+        dataset_id=DATASET_ID,
+        output_path=OUTPUT_PATH,
     )
+    print("done")
 
-    xticks.append(
-        sub["x"].median()
-    )
 
-    xticklabels.append(
-        chrom.replace("Chr","")
-    )
-
-    offset += sub["pos"].max()
-
-plt.axhline(
-    -np.log10(1e-5),
-    linestyle="--"
-)
-
-plt.xticks(
-    xticks,
-    xticklabels,
-    rotation=0
-)
-
-plt.xlabel("Chromosome")
-plt.ylabel("-log10(p)")
-plt.title("Water Permeability GWAS")
-
-plt.tight_layout()
-
-plt.savefig(
-    "plots/water_permeability_manhattan.png",
-    dpi=300
-)
-
-print("done")
+if __name__ == "__main__":
+    main()

@@ -80,32 +80,120 @@ Note: Beta values represent effect size estimates from the linear mixed model as
 ---
 
 ## Reproducibility
-### Scripts
 
-| Script | Description | Input | Output |
-|---|---|---|---|
-| `01_manhattan_plot.py` | Generates a genome-wide Manhattan plot for water permeability GWAS. | GWAS summary statistics | `plots/water_permeability_manhattan.png` |
-| `02_qq_plot.py` | Generates a QQ plot for GWAS quality-control visualization. | GWAS summary statistics | `plots/water_permeability_qq.png` |
-| `03_regional_plot.py` | Generates regional association plots for user-specified chromosome intervals. | GWAS summary statistics, chromosome, start/end positions | Regional plot PNG files |
-| `04_extract_top_variants_by_region.py` | Extracts the top associated variant within each visualization window. | GWAS summary statistics | `results/water_permeability/top_variants_by_region.tsv` |
+All commands below reproduce the plots and tables shown in this README for the
+`miyagi_water_permeability` dataset only. They do **not** cover the other 5 datasets in the
+Dryad archive (Miyagi/Shumari x water_permeability/red_seedcoat/mottled_black_seedcoat) --
+those are out of scope for this repository's current plots/results (see
+[Issue #3](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/3)).
 
-### Environment
+### Validation is mandatory, not optional
+
+Every analysis command below -- both the unified CLI and the legacy per-script wrappers --
+runs schema v1 validation (`validate_dataset()`, [Issue #1](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/1)/[#2](https://github.com/hoso-jpn/adzuki-gwas-analysis/pull/2))
+against the input file **before** producing any plot or TSV. If validation fails, no output is
+written -- out-of-range or malformed rows are never silently dropped or ignored.
+
+### Environment (uv only)
 
 ```bash
-conda activate bioinfo
-conda install pandas numpy matplotlib -y
+uv sync --locked
 ```
+
+`pandas`, `numpy`, and `matplotlib` are declared as regular runtime dependencies in
+`pyproject.toml`/`uv.lock`; no separate conda environment is needed.
 
 ### Input Data
 
-Download from Dryad and place under data/raw/:
+Download from Dryad and place the extracted `.assoc.txt` files under `data/raw/` (never
+committed to this repository -- see `.gitignore`):
 ```
 data/raw/mapped_to_Miyagi_water_permeability.maf_0.05.assoc.txt
 ```
 
-### Run
+### Validate first
 
-The following commands reproduce all plots and summary tables shown in this README.
+```bash
+uv run adzuki-gwas-validate --manifest manifest.toml --data-dir data/raw
+```
+
+### Unified CLI: `adzuki-gwas-analyze`
+
+Each of `manhattan`, `qq`, `regions`, and `top-variants` runs schema v1 validation and then
+writes one kind of output under `--output-dir` (or to the exact path passed to `--output`).
+None of the examples below write directly into the tracked `plots/`/`results/` directories --
+see "Legacy scripts" below for the wrappers that do:
+
+```bash
+INDIVIDUAL_OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze manhattan --output-dir "$INDIVIDUAL_OUTPUT_DIR"
+uv run adzuki-gwas-analyze qq --output-dir "$INDIVIDUAL_OUTPUT_DIR"
+uv run adzuki-gwas-analyze regions --output-dir "$INDIVIDUAL_OUTPUT_DIR"
+uv run adzuki-gwas-analyze top-variants \
+  --output "$INDIVIDUAL_OUTPUT_DIR/top_variants_by_region.tsv"
+
+find "$INDIVIDUAL_OUTPUT_DIR" -maxdepth 1 -type f -print
+```
+
+`adzuki-gwas-analyze all` is a **single-output-directory bundle command**: it validates the
+input once and then writes all of the following under one `--output-dir`, in one pass --
+
+- `<dataset_id>_manhattan.png`
+- `<dataset_id>_qq.png`
+- one regional PNG per region in `--regions-config`, named by that region's
+  `output_filename`
+- `top_variants_by_region.tsv`
+
+It is **not** a reproducer of this README's tracked `plots/`/`results/` layout above -- see
+"Legacy scripts" below for that. Use a separate scratch directory from the individual
+commands above -- reusing the same directory would let `all`'s bundle output overwrite what
+those just wrote -- e.g. for a one-pass smoke test of all four outputs together:
+
+```bash
+BUNDLE_OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze all --output-dir "$BUNDLE_OUTPUT_DIR"
+find "$BUNDLE_OUTPUT_DIR" -maxdepth 1 -type f -print
+```
+
+Common flags: `--manifest` (default `manifest.toml`), `--data-dir` (default `data/raw`),
+`--dataset-id` (default `miyagi_water_permeability`), `--regions-config` (default
+`config/water_permeability_regions.toml`), `--threshold` (default `1e-5`, see below).
+
+**Pointing `--output-dir` directly at `plots` (with the default `--regions-config`):**
+schema validation still runs first, as with every command above, but no tracked-artifact
+equivalence check or overwrite confirmation runs before anything is written. Concretely, for
+`all` or `regions`:
+
+- the 5 regional PNGs are named identically to the tracked files in
+  [`config/water_permeability_regions.toml`](config/water_permeability_regions.toml) and are
+  replaced in place;
+- `all`'s `<dataset_id>_manhattan.png` / `<dataset_id>_qq.png` are added as new,
+  differently-named files -- the tracked `water_permeability_manhattan.png` /
+  `water_permeability_qq.png` are left untouched;
+- `all`'s `top_variants_by_region.tsv` is added directly under `plots/`, not written to
+  `results/water_permeability/top_variants_by_region.tsv`.
+
+### Legacy scripts (kept as thin backward-compatible wrappers)
+
+| Script | Description | Input | Output |
+|---|---|---|---|
+| `01_manhattan_plot.py` | Genome-wide Manhattan plot for water permeability GWAS. | `data/raw/mapped_to_Miyagi_water_permeability.maf_0.05.assoc.txt` | `plots/water_permeability_manhattan.png` |
+| `02_qq_plot.py` | QQ plot for GWAS quality-control visualization. | (same) | `plots/water_permeability_qq.png` |
+| `03_regional_plot.py` | Regional association plot for a user-specified chromosome interval. | GWAS summary statistics, chromosome, start/end positions | Regional plot PNG |
+| `04_extract_top_variants_by_region.py` | Extracts the top variant within each configured visualization window. | GWAS summary statistics + `config/water_permeability_regions.toml` | `results/water_permeability/top_variants_by_region.tsv` |
+
+These scripts are thin wrappers around `src/adzuki_gwas_analysis/analysis/` -- they run the
+same mandatory validation and produce the same output as the unified CLI, and take the exact
+same command-line arguments they always have. Unlike `adzuki-gwas-analyze all`/`regions` (a
+single-output-directory bundle command meant for a scratch directory -- see above), these
+wrappers are the intended path for regenerating the tracked
+`plots`/`results/water_permeability/` artifacts under their existing names and layout.
+
+Before running them for that purpose, confirm a clean working tree (`git status`); after
+running, review what changed before committing -- e.g. `git diff --stat -- plots results`
+for the PNGs, and a byte-for-byte check such as `cmp` against the pre-existing file for
+`results/water_permeability/top_variants_by_region.tsv` -- rather than committing
+regenerated output unreviewed:
 
 ```bash
 python scripts/01_manhattan_plot.py
@@ -153,20 +241,77 @@ python scripts/03_regional_plot.py \
 python scripts/04_extract_top_variants_by_region.py
 ```
 
+### Post-hoc visualization regions
+
+The 5 chromosome windows used above (and defined in
+[`config/water_permeability_regions.toml`](config/water_permeability_regions.toml)) were chosen
+post-hoc by visual inspection of the genome-wide Manhattan plot. They are **not** independently
+defined QTL intervals, **not** LD blocks, and not the output of any linkage or fine-mapping
+analysis -- treat them as visualization conveniences only.
+
+### The `1e-5` threshold line
+
+The dashed line drawn on Manhattan and regional plots at `1e-5` (configurable via
+`--threshold`) is a **legacy visualization threshold**, not a Bonferroni-corrected or
+genome-wide significance level. No multiple-testing correction is computed by this repository
+(see Issue #3's out-of-scope list); a statistically corrected threshold is a candidate for a
+future Issue.
+
+### What this repository is (and is not)
+
+This repository visualizes and re-analyzes existing, publicly deposited GWAS summary
+statistics -- it does **not** re-run the underlying GWAS. `pval` is always the
+likelihood-ratio-test (LRT) p-value (see [`docs/gwas_input_contract.md`](docs/gwas_input_contract.md)).
+Miyagi, Shumari, and Longxiaodou 4 (used by
+[adzuki-snp-pipeline](https://github.com/hoso-jpn/adzuki-snp-pipeline)) are three distinct,
+non-interchangeable reference coordinate systems -- positions from one must never be
+interpreted against another.
+
+### `results/water_permeability/top_snps.tsv`
+
+This file's generation rule is **not verified**: no script producing it exists anywhere in
+this repository's git history, and this Issue does not attempt to reconstruct or regenerate
+it. It is out of scope here and tracked as a separate, unresolved question.
+
+### Smoke-testing against real data (developers)
+
+Smoke-test `adzuki-gwas-analyze all` against the real `data/raw/` file by writing to a
+scratch directory -- never directly to `plots/` or `results/` -- and then compare the
+result against the tracked files:
+
+```bash
+OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze all --output-dir "$OUTPUT_DIR"
+find "$OUTPUT_DIR" -maxdepth 1 -type f -print
+cmp "$OUTPUT_DIR/top_variants_by_region.tsv" \
+    results/water_permeability/top_variants_by_region.tsv
+```
+
+Compare the regional/Manhattan/QQ PNGs under `$OUTPUT_DIR` against the tracked `plots/`
+files by inspection (dimensions and content); this repository does not assert byte-for-byte
+PNG equivalence, only TSV equivalence and PNG dimension/content equivalence.
+
+This is a correctness check, not a performance benchmark. Any wall-time or peak-memory
+numbers reported for this repository were measured on a single Apple Silicon Mac and are
+recorded only to confirm the analysis fits comfortably in memory (one dataset processed at
+a time) -- they say nothing about Linux/production performance.
+
 ---
 
 ## Input Contract and Validation
 
-[Issue #1](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/1) adds a machine-readable
+[Issue #1](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/1) /
+[PR #2](https://github.com/hoso-jpn/adzuki-gwas-analysis/pull/2) added a machine-readable
 manifest (`manifest.toml`) and a schema validator (`src/adzuki_gwas_analysis/`) covering all
 6 GWAS summary-statistics files in the Dryad dataset above (3 traits x 2 reference genomes:
 Miyagi, Shumari). See [`docs/gwas_input_contract.md`](docs/gwas_input_contract.md) for the
-full contract: the 6-dataset list, why Miyagi/Shumari (and Longxiaodou 4, used by
-[adzuki-snp-pipeline](https://github.com/hoso-jpn/adzuki-snp-pipeline)) are not
+full contract: the 6-dataset list, why Miyagi/Shumari (and Longxiaodou 4) are not
 interchangeable coordinate systems, why `pval` is the likelihood-ratio-test p-value used as
 this repository's primary statistic, how to obtain and checksum-verify the raw data, and how
-to run the validator. Raw data is never committed to this repository. This Issue does not
-migrate the existing scripts above to use the new validator/loader; that remains a follow-up.
+to run the validator. Raw data is never committed to this repository.
+[Issue #3](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/3) migrated the
+`miyagi_water_permeability` analysis scripts above onto this validator/loader; the other 5
+datasets are not yet migrated.
 
 ```bash
 uv sync --locked
