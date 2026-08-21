@@ -21,3 +21,6 @@ __pycache__/
 # OS / editor
 .DS_Store
 .vscode/
+
+# Claude Code local overrides (machine-specific, never committed)
+/.claude/settings.local.json
