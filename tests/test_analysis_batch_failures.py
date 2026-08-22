@@ -233,15 +233,40 @@ class PublishFailureTests(BatchFailureTestCase):
         # permission error, a cross-device rename), the staging directory -- which by this
         # point holds a fully-built, 25-file tree -- must still be cleaned up, not left
         # behind as an orphaned near-complete batch.
+        #
+        # os.replace is one process-wide function: plotting.py's _atomic_savefig and
+        # pipeline.py's atomic_write_tsv each call it too, for their own per-file atomic
+        # PNG/TSV writes. An earlier version of this test patched os.replace
+        # unconditionally, so the injected failure fired on the very first PNG save
+        # instead of the final publish -- a false positive that never actually reached,
+        # let alone exercised, the step it claimed to test. This version only fails the
+        # rename whose destination is output_dir itself, letting every other os.replace
+        # call (every dataset's PNGs/TSVs, staged successfully) run for real, and asserts
+        # the staging tree already holds all 25 files at the moment that final rename is
+        # attempted.
         self._write_all_six_valid()
+        original_replace = batch.os.replace
+        publish_attempts = 0
+
+        def _fail_only_on_final_publish(src: Path, dst: Path) -> None:
+            nonlocal publish_attempts
+            if Path(dst) == self.output_dir:
+                publish_attempts += 1
+                generated_files = [path for path in Path(src).rglob("*") if path.is_file()]
+                self.assertEqual(len(generated_files), 25)
+                raise OSError("simulated final publish failure")
+            original_replace(src, dst)
+
         with (
             mock.patch(
                 "adzuki_gwas_analysis.analysis.batch.os.replace",
-                side_effect=OSError("simulated publish failure"),
+                side_effect=_fail_only_on_final_publish,
             ),
             self.assertRaises(OSError),
         ):
             self._run_batch_recording_staging_dir()
+
+        self.assertEqual(publish_attempts, 1)
         self._assert_no_partial_output()
 
 
