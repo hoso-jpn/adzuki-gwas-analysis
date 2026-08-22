@@ -9,6 +9,7 @@ Usage::
     adzuki-gwas-analyze regions --output-dir out/
     adzuki-gwas-analyze top-variants --output out/top_variants_by_region.tsv
     adzuki-gwas-analyze all --output-dir out/
+    adzuki-gwas-analyze diagnostics --output-dir out/
 
 Every subcommand validates its dataset against the schema v1 manifest
 (:mod:`adzuki_gwas_analysis.validate`) before producing any output, and exits
@@ -17,6 +18,14 @@ the likelihood-ratio-test (LRT) p-value (the manifest's declared
 ``pvalue_columns.primary``); the ``--threshold`` line drawn on Manhattan/
 regional plots is a legacy visualization threshold (default ``1e-5``), not a
 Bonferroni-corrected or genome-wide significance level.
+
+``diagnostics`` is a separate multiple-testing-correction subcommand (Bonferroni
+FWER, Benjamini-Hochberg FDR, and the genomic inflation factor lambda_GC), computed
+over one dataset's manifest-declared primary p-value column only -- see
+:mod:`adzuki_gwas_analysis.analysis.diagnostics`. It takes its own ``--alpha``/
+``--fdr-level`` flags, not ``--threshold`` (a distinct, legacy visualization
+concept), and does not change what ``manhattan``/``qq``/``regional``/``regions``/
+``top-variants``/``all`` produce.
 """
 
 from __future__ import annotations
@@ -26,8 +35,11 @@ import sys
 from pathlib import Path
 
 from adzuki_gwas_analysis.analysis.pipeline import (
+    DEFAULT_ALPHA,
+    DEFAULT_FDR_LEVEL,
     DEFAULT_THRESHOLD,
     run_all,
+    run_diagnostics,
     run_manhattan,
     run_qq,
     run_regions,
@@ -102,6 +114,34 @@ def _build_parser() -> argparse.ArgumentParser:
     all_cmd = subparsers.add_parser("all", help="Manhattan + QQ + regions + top-variants")
     _add_common_arguments(all_cmd, needs_output_dir=True)
     all_cmd.add_argument("--regions-config", type=Path, default=DEFAULT_REGIONS_CONFIG)
+
+    diagnostics = subparsers.add_parser(
+        "diagnostics", help="Bonferroni / BH-FDR / genomic inflation factor (lambda_GC)"
+    )
+    diagnostics.add_argument(
+        "--manifest", type=Path, default=DEFAULT_MANIFEST, help="Path to manifest.toml"
+    )
+    diagnostics.add_argument(
+        "--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Directory with .assoc.txt files"
+    )
+    diagnostics.add_argument(
+        "--dataset-id", default=DEFAULT_DATASET_ID, help="Manifest dataset_id to analyze"
+    )
+    diagnostics.add_argument(
+        "--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory"
+    )
+    diagnostics.add_argument(
+        "--alpha",
+        type=float,
+        default=DEFAULT_ALPHA,
+        help="Bonferroni family-wise alpha (not the legacy --threshold)",
+    )
+    diagnostics.add_argument(
+        "--fdr-level",
+        type=float,
+        default=DEFAULT_FDR_LEVEL,
+        help="Benjamini-Hochberg FDR level (not the legacy --threshold)",
+    )
 
     return parser
 
@@ -183,6 +223,38 @@ def main(argv: list[str] | None = None) -> int:
             for region_outcome in all_outcome.regions:
                 print(f"Saved: {region_outcome.plot.output_path}")
             print(f"Saved: {all_outcome.top_variants_path}")
+
+        elif args.command == "diagnostics":
+            diagnostics_outcome = run_diagnostics(
+                manifest_path=args.manifest,
+                data_dir=args.data_dir,
+                dataset_id=args.dataset_id,
+                output_dir=args.output_dir,
+                alpha=args.alpha,
+                fdr_level=args.fdr_level,
+            )
+            diagnostics_result = diagnostics_outcome.result
+            print(
+                f"dataset_id={diagnostics_result.dataset_id} "
+                f"pvalue_column={diagnostics_result.pvalue_column} "
+                f"n_tests={diagnostics_result.n_tests}"
+            )
+            print(
+                f"Bonferroni: threshold={diagnostics_result.bonferroni.threshold:.6g} "
+                f"discoveries={diagnostics_result.bonferroni.discoveries}"
+            )
+            print(
+                f"BH: fdr_level={diagnostics_result.bh.fdr_level} "
+                f"discoveries={diagnostics_result.bh.discoveries} "
+                f"raw_p_cutoff={diagnostics_result.bh.raw_p_cutoff}"
+            )
+            print(
+                f"lambda_GC: df={diagnostics_result.lambda_gc.df} "
+                f"value={diagnostics_result.lambda_gc.lambda_gc:.6g} "
+                f"(diagnostic only; not a genome-wide-significance verdict)"
+            )
+            print(f"Saved: {diagnostics_outcome.summary_path}")
+            print(f"Saved: {diagnostics_outcome.significant_variants_path}")
 
         else:  # pragma: no cover - argparse enforces valid choices
             parser.error(f"unknown command {args.command!r}")
