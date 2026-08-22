@@ -307,11 +307,11 @@ def run_top_variants(
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_tsv(table, output_path)
+    atomic_write_tsv(table, output_path)
     return table
 
 
-def _atomic_write_tsv(table: pd.DataFrame, output_path: Path) -> None:
+def atomic_write_tsv(table: pd.DataFrame, output_path: Path) -> None:
     fd, tmp_name = tempfile.mkstemp(dir=output_path.parent, suffix=".tsv.tmp")
     os.close(fd)
     tmp_path = Path(tmp_name)
@@ -367,7 +367,7 @@ def run_all(
     table = top_variants_table(region_config, df, dataset_id=dataset_id)
     top_variants_path = output_dir / "top_variants_by_region.tsv"
     output_dir.mkdir(parents=True, exist_ok=True)
-    _atomic_write_tsv(table, top_variants_path)
+    atomic_write_tsv(table, top_variants_path)
 
     return AllOutcome(
         manhattan=manhattan,
@@ -392,6 +392,73 @@ class DiagnosticsOutcome:
     significant_variants_path: Path
 
 
+def extract_primary_pvalues(
+    info: ValidatedDatasetInfo, variant_df: pd.DataFrame
+) -> tuple[str, pd.Series[float]]:
+    """Return ``(pvalue_column, pvalues)`` for an already-validated, already-loaded dataset.
+
+    ``pvalue_column`` comes from ``info.manifest.pvalue_columns.primary`` -- never a
+    hardcoded ``"pval"`` literal -- and the returned p-value count is checked against
+    ``info.validation.row_count`` (the row count schema v1 validation actually counted,
+    not ``manifest.toml``'s declared ``row_count`` taken on faith), raising
+    :class:`~adzuki_gwas_analysis.errors.LoadedPvalueCountMismatchError` on a mismatch.
+    Shared by :func:`compute_diagnostics_result` and
+    :mod:`adzuki_gwas_analysis.analysis.batch`, which both start from a dataset that has
+    already been validated and loaded exactly once.
+    """
+    pvalue_column = info.manifest.pvalue_columns.primary
+    pvalues = variant_df[pvalue_column]
+    if len(pvalues) != info.validation.row_count:
+        raise LoadedPvalueCountMismatchError(
+            dataset_id=info.entry.dataset_id,
+            validated_row_count=info.validation.row_count,
+            loaded_count=len(pvalues),
+        )
+    return pvalue_column, pvalues
+
+
+def compute_diagnostics_result(
+    info: ValidatedDatasetInfo,
+    variant_df: pd.DataFrame,
+    *,
+    alpha: float = DEFAULT_ALPHA,
+    fdr_level: float = DEFAULT_FDR_LEVEL,
+) -> DiagnosticsResult:
+    """Compute Bonferroni/BH/lambda_GC for an already-validated, already-loaded dataset.
+
+    Pure computation, no file I/O: takes the :class:`ValidatedDatasetInfo` and analysis
+    ``variant_df`` a caller has already produced via one
+    :func:`ensure_validated_with_result` and one
+    :func:`~adzuki_gwas_analysis.analysis.loader.load_analysis_frame` call, and returns the
+    same :class:`~adzuki_gwas_analysis.analysis.diagnostics.DiagnosticsResult`
+    that :func:`run_diagnostics` writes to disk. This is the internal API
+    :mod:`adzuki_gwas_analysis.analysis.batch` uses so that a batch run's Manhattan plot, QQ
+    plot, and diagnostics for one dataset all share the exact same validation pass and
+    loaded DataFrame, rather than each re-validating and re-loading the same file.
+
+    The multiple-testing family is fixed: this one dataset's manifest-declared primary
+    p-value column, over every variant validation counted for this one file -- never the
+    other 5 Dryad files, never Miyagi+Shumari, never the 3 traits, never a post-hoc region,
+    and never ``p_wald``/``p_score``.
+    """
+    pvalue_column, pvalues_series = extract_primary_pvalues(info, variant_df)
+    pvalues = pvalues_series.to_numpy(dtype="float64")
+
+    bonferroni = compute_bonferroni(pvalues, alpha=alpha)
+    bh = compute_bh(pvalues, fdr_level=fdr_level)
+    lambda_gc = compute_lambda_gc(pvalues, df=DEFAULT_LAMBDA_GC_DF)
+
+    return DiagnosticsResult(
+        dataset_id=info.entry.dataset_id,
+        source_sha256=info.validation.sha256,
+        pvalue_column=pvalue_column,
+        n_tests=len(pvalues),
+        bonferroni=bonferroni,
+        bh=bh,
+        lambda_gc=lambda_gc,
+    )
+
+
 def run_diagnostics(
     *,
     manifest_path: Path,
@@ -403,46 +470,16 @@ def run_diagnostics(
 ) -> DiagnosticsOutcome:
     """Validate, load once, compute Bonferroni/BH/lambda_GC, and write both TSVs atomically.
 
-    The multiple-testing family is fixed: this one dataset's manifest-declared primary
-    p-value column, over every variant validation counted for this one file -- never the
-    other 5 Dryad files, never Miyagi+Shumari, never the 3 traits, never a post-hoc region,
-    and never ``p_wald``/``p_score``. ``alpha``/``fdr_level`` validation and the family's
-    numeric computation all happen in memory before either output file is created, so a
-    contract, count-mismatch, or numeric-input error leaves no output behind -- matching
-    every other ``run_*`` function in this module.
+    ``alpha``/``fdr_level`` validation and the family's numeric computation (delegated to
+    :func:`compute_diagnostics_result`) all happen in memory before either output file is
+    created, so a contract, count-mismatch, or numeric-input error leaves no output behind
+    -- matching every other ``run_*`` function in this module.
     """
     info = ensure_validated_with_result(
         manifest_path=manifest_path, data_dir=data_dir, dataset_id=dataset_id
     )
-    pvalue_column = info.manifest.pvalue_columns.primary
-
     variant_df = load_analysis_frame(data_dir / info.entry.member_filename)
-    # ``load_manifest`` already fails fast unless pvalue_columns.primary == "pval", and
-    # ANALYSIS_COLUMNS always includes "pval" -- so pvalue_column is always a real column
-    # here. Read via the manifest-declared name regardless, rather than a literal "pval",
-    # so this line is the one place that would need to change if that invariant ever did.
-    pvalues = variant_df[pvalue_column].to_numpy(dtype="float64")
-
-    if len(pvalues) != info.validation.row_count:
-        raise LoadedPvalueCountMismatchError(
-            dataset_id=dataset_id,
-            validated_row_count=info.validation.row_count,
-            loaded_count=len(pvalues),
-        )
-
-    bonferroni = compute_bonferroni(pvalues, alpha=alpha)
-    bh = compute_bh(pvalues, fdr_level=fdr_level)
-    lambda_gc = compute_lambda_gc(pvalues, df=DEFAULT_LAMBDA_GC_DF)
-
-    result = DiagnosticsResult(
-        dataset_id=dataset_id,
-        source_sha256=info.validation.sha256,
-        pvalue_column=pvalue_column,
-        n_tests=len(pvalues),
-        bonferroni=bonferroni,
-        bh=bh,
-        lambda_gc=lambda_gc,
-    )
+    result = compute_diagnostics_result(info, variant_df, alpha=alpha, fdr_level=fdr_level)
 
     summary_table = build_summary_table(result)
     significant_table = build_significant_variants_table(variant_df, result)
@@ -451,8 +488,8 @@ def run_diagnostics(
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = output_dir / "statistical_diagnostics.tsv"
     significant_variants_path = output_dir / "significant_variants.tsv"
-    _atomic_write_tsv(summary_table, summary_path)
-    _atomic_write_tsv(significant_table, significant_variants_path)
+    atomic_write_tsv(summary_table, summary_path)
+    atomic_write_tsv(significant_table, significant_variants_path)
 
     return DiagnosticsOutcome(
         result=result,
