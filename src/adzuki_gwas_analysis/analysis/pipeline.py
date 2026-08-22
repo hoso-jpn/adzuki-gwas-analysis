@@ -6,10 +6,20 @@ if it fails -- before touching pandas, matplotlib, or the output directory
 at all. No function in this module produces a plot or TSV for a dataset that
 failed validation.
 
-``threshold`` throughout is the legacy ``1e-5`` visualization line used by
-the original scripts. It is not a Bonferroni-corrected or genome-wide
-significance threshold -- it is not derived from any multiple-testing
-correction, and this module does not compute one.
+``threshold`` throughout (``run_manhattan``/``run_single_regional``/``run_regions``/
+``run_all``) is the legacy ``1e-5`` visualization line used by the original scripts.
+It is not a Bonferroni-corrected or genome-wide significance threshold, and drawing
+it does not itself perform any multiple-testing correction.
+
+Multiple-testing correction is a separate responsibility, orchestrated by
+``run_diagnostics`` below: it validates and loads a dataset exactly like every
+other ``run_*`` function here, then delegates the actual Bonferroni/
+Benjamini-Hochberg/lambda_GC computation to
+:mod:`adzuki_gwas_analysis.analysis.statistics` (no numeric logic lives in this
+module) before writing its own, independent output files. Plotting's
+``threshold`` and ``run_diagnostics``'s ``alpha``/``fdr_level`` are unrelated
+values for unrelated purposes -- one draws a line on a plot, the other
+computes a statistical correction -- and neither substitutes for the other.
 """
 
 from __future__ import annotations
@@ -22,6 +32,11 @@ from pathlib import Path
 import pandas as pd
 
 from adzuki_gwas_analysis.analysis.chromosomes import compute_manhattan_coordinates
+from adzuki_gwas_analysis.analysis.diagnostics import (
+    DiagnosticsResult,
+    build_significant_variants_table,
+    build_summary_table,
+)
 from adzuki_gwas_analysis.analysis.loader import load_analysis_frame
 from adzuki_gwas_analysis.analysis.plotting import (
     PlotResult,
@@ -32,9 +47,18 @@ from adzuki_gwas_analysis.analysis.plotting import (
 from adzuki_gwas_analysis.analysis.qq import compute_qq_points
 from adzuki_gwas_analysis.analysis.region_config import RegionConfig, load_region_config
 from adzuki_gwas_analysis.analysis.regions import TopVariant, select_top_variant, subset_region
-from adzuki_gwas_analysis.errors import DatasetValidationFailedError, UnknownDatasetIdError
+from adzuki_gwas_analysis.analysis.statistics import (
+    compute_bh,
+    compute_bonferroni,
+    compute_lambda_gc,
+)
+from adzuki_gwas_analysis.errors import (
+    DatasetValidationFailedError,
+    LoadedPvalueCountMismatchError,
+    UnknownDatasetIdError,
+)
 from adzuki_gwas_analysis.manifest import DatasetEntry, Manifest, load_manifest
-from adzuki_gwas_analysis.validate import validate_dataset
+from adzuki_gwas_analysis.validate import ValidationResult, validate_dataset
 
 DEFAULT_THRESHOLD = 1e-5
 
@@ -69,6 +93,42 @@ def ensure_validated(*, manifest_path: Path, data_dir: Path, dataset_id: str) ->
     if not result.success:
         raise DatasetValidationFailedError(dataset_id=dataset_id, reason=result.error or "unknown")
     return entry
+
+
+@dataclass(frozen=True, slots=True)
+class ValidatedDatasetInfo:
+    """The manifest, dataset entry, and validation result for one validated dataset.
+
+    ``ensure_validated`` (above) discards :class:`~adzuki_gwas_analysis.validate.ValidationResult`
+    after checking ``success``, keeping only the manifest's declared
+    :class:`~adzuki_gwas_analysis.manifest.DatasetEntry`. Diagnostics needs more than that:
+    it must confirm the number of p-values it loads equals the row count
+    *validation actually counted* -- not ``manifest.toml``'s declared ``row_count`` taken on
+    faith -- so this variant returns the full :class:`Manifest` (for
+    ``pvalue_columns.primary``) and the :class:`~adzuki_gwas_analysis.validate.ValidationResult`
+    (for its counted ``row_count`` and ``sha256``) as well.
+    """
+
+    manifest: Manifest
+    entry: DatasetEntry
+    validation: ValidationResult
+
+
+def ensure_validated_with_result(
+    *, manifest_path: Path, data_dir: Path, dataset_id: str
+) -> ValidatedDatasetInfo:
+    """Like :func:`ensure_validated`, but also returns the manifest and full validation result.
+
+    Calls :func:`~adzuki_gwas_analysis.validate.validate_dataset` exactly once -- the same
+    single pass over the file that :func:`ensure_validated` already performs -- so using this
+    instead adds no extra raw-file scan.
+    """
+    manifest = load_manifest(manifest_path)
+    entry = _get_entry(manifest, dataset_id)
+    result = validate_dataset(entry, data_dir)
+    if not result.success:
+        raise DatasetValidationFailedError(dataset_id=dataset_id, reason=result.error or "unknown")
+    return ValidatedDatasetInfo(manifest=manifest, entry=entry, validation=result)
 
 
 def load_validated_frame(*, manifest_path: Path, data_dir: Path, dataset_id: str) -> pd.DataFrame:
@@ -315,4 +375,87 @@ def run_all(
         regions=region_outcomes,
         top_variants=table,
         top_variants_path=top_variants_path,
+    )
+
+
+DEFAULT_ALPHA = 0.05
+DEFAULT_FDR_LEVEL = 0.05
+DEFAULT_LAMBDA_GC_DF = 1
+
+
+@dataclass(frozen=True, slots=True)
+class DiagnosticsOutcome:
+    """Every output produced by a single ``diagnostics`` run."""
+
+    result: DiagnosticsResult
+    summary_path: Path
+    significant_variants_path: Path
+
+
+def run_diagnostics(
+    *,
+    manifest_path: Path,
+    data_dir: Path,
+    dataset_id: str,
+    output_dir: Path,
+    alpha: float = DEFAULT_ALPHA,
+    fdr_level: float = DEFAULT_FDR_LEVEL,
+) -> DiagnosticsOutcome:
+    """Validate, load once, compute Bonferroni/BH/lambda_GC, and write both TSVs atomically.
+
+    The multiple-testing family is fixed: this one dataset's manifest-declared primary
+    p-value column, over every variant validation counted for this one file -- never the
+    other 5 Dryad files, never Miyagi+Shumari, never the 3 traits, never a post-hoc region,
+    and never ``p_wald``/``p_score``. ``alpha``/``fdr_level`` validation and the family's
+    numeric computation all happen in memory before either output file is created, so a
+    contract, count-mismatch, or numeric-input error leaves no output behind -- matching
+    every other ``run_*`` function in this module.
+    """
+    info = ensure_validated_with_result(
+        manifest_path=manifest_path, data_dir=data_dir, dataset_id=dataset_id
+    )
+    pvalue_column = info.manifest.pvalue_columns.primary
+
+    variant_df = load_analysis_frame(data_dir / info.entry.member_filename)
+    # ``load_manifest`` already fails fast unless pvalue_columns.primary == "pval", and
+    # ANALYSIS_COLUMNS always includes "pval" -- so pvalue_column is always a real column
+    # here. Read via the manifest-declared name regardless, rather than a literal "pval",
+    # so this line is the one place that would need to change if that invariant ever did.
+    pvalues = variant_df[pvalue_column].to_numpy(dtype="float64")
+
+    if len(pvalues) != info.validation.row_count:
+        raise LoadedPvalueCountMismatchError(
+            dataset_id=dataset_id,
+            validated_row_count=info.validation.row_count,
+            loaded_count=len(pvalues),
+        )
+
+    bonferroni = compute_bonferroni(pvalues, alpha=alpha)
+    bh = compute_bh(pvalues, fdr_level=fdr_level)
+    lambda_gc = compute_lambda_gc(pvalues, df=DEFAULT_LAMBDA_GC_DF)
+
+    result = DiagnosticsResult(
+        dataset_id=dataset_id,
+        source_sha256=info.validation.sha256,
+        pvalue_column=pvalue_column,
+        n_tests=len(pvalues),
+        bonferroni=bonferroni,
+        bh=bh,
+        lambda_gc=lambda_gc,
+    )
+
+    summary_table = build_summary_table(result)
+    significant_table = build_significant_variants_table(variant_df, result)
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "statistical_diagnostics.tsv"
+    significant_variants_path = output_dir / "significant_variants.tsv"
+    _atomic_write_tsv(summary_table, summary_path)
+    _atomic_write_tsv(significant_table, significant_variants_path)
+
+    return DiagnosticsOutcome(
+        result=result,
+        summary_path=summary_path,
+        significant_variants_path=significant_variants_path,
     )

@@ -9,6 +9,7 @@ dependencies = [
     "matplotlib>=3.11.1",
     "numpy>=2.4.6",
     "pandas>=3.0.5",
+    "scipy>=1.17.1",
 ]
 
 [project.scripts]
@@ -20,6 +21,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pandas-stubs>=3.0.5.260730",
+    "scipy-stubs>=1.17.1.5",
 ]
 
 [build-system]
