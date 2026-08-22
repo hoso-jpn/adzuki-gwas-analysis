@@ -59,7 +59,19 @@ git diff --check
 
 - `pval` は likelihood ratio test (LRT) p-value。`p_wald` / `p_score` も検証対象だが primary ではない。
 - `1e-5`（`--threshold`）は legacy visualization threshold。Bonferroni補正や genome-wide
-  significance と表現しない。本リポジトリは多重検定補正を一切計算しない。
+  significance と表現しない。`--threshold`は`adzuki-gwas-analyze diagnostics`の
+  `--alpha`/`--fdr-level`とは無関係で、`diagnostics`が既存subcommandの挙動を変えることはない。
+- multiple-testing familyは「1 dataset_id × manifest.pvalue_columns.primary × その
+  ファイルでschema v1 validationを通過した全variant」に固定。6ファイル・Miyagi/Shumari・
+  3形質・post-hoc regionを混ぜない。`m`はmanifestの`row_count`を無条件に使わず、実際に
+  loadしたp-value数と一致することを確認する。
+- BH-adjusted p-value(`pval_bh`)をStorey q-valueと呼ばない。BHの保証は独立検定または
+  PRDS(positive regression dependency on a subset)下でのみ成立し、LDで相関するSNPに
+  対して任意の依存構造での保証があるとは表現しない。
+- λGCは診断値のみ。test statisticやp-valueをλGCで再補正しない。λGC単独で population
+  stratification/kinship/batch effect/polygenicityの原因を断定しない。df=1の根拠は
+  Dryad metadata・GEMMA univariate LMMのモデル記述であり、論文本文Methodsは未確認
+  （README「Statistical Diagnostics」節参照）。
 - config/water_permeability_regions.toml の窓は Manhattan plot を目視して事後に選んだ
   post-hoc visualization window。独立に定義されたQTL区間やLD blockであると断定しない。
 - 本リポジトリは公開 summary statistics を可視化・再解析するだけで GWAS を再実行しない。

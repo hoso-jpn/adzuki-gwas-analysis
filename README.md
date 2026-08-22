@@ -253,9 +253,12 @@ analysis -- treat them as visualization conveniences only.
 
 The dashed line drawn on Manhattan and regional plots at `1e-5` (configurable via
 `--threshold`) is a **legacy visualization threshold**, not a Bonferroni-corrected or
-genome-wide significance level. No multiple-testing correction is computed by this repository
-(see Issue #3's out-of-scope list); a statistically corrected threshold is a candidate for a
-future Issue.
+genome-wide significance level, and this default is unchanged by
+[Issue #7](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/7)'s `diagnostics`
+subcommand below. Bonferroni/BH-FDR/lambda_GC are computed by `adzuki-gwas-analyze
+diagnostics` as a separate command with its own `--alpha`/`--fdr-level` flags -- see
+[Statistical Diagnostics](#statistical-diagnostics-bonferroni--bh-fdr--genomic-inflation-factor)
+below.
 
 ### What this repository is (and is not)
 
@@ -295,6 +298,106 @@ This is a correctness check, not a performance benchmark. Any wall-time or peak-
 numbers reported for this repository were measured on a single Apple Silicon Mac and are
 recorded only to confirm the analysis fits comfortably in memory (one dataset processed at
 a time) -- they say nothing about Linux/production performance.
+
+---
+
+## Statistical Diagnostics (Bonferroni / BH-FDR / genomic inflation factor)
+
+[Issue #7](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/7) adds
+`adzuki-gwas-analyze diagnostics`: Bonferroni family-wise error rate (FWER) correction,
+Benjamini-Hochberg false discovery rate (FDR) correction, and the genomic inflation factor
+(lambda_GC), computed against one dataset's validated `pval` column. This is a **post-hoc
+diagnostic pass over already-published GWAS summary statistics -- not a GWAS re-run**, and
+it does not re-correct population structure, kinship, or batch effects.
+
+```bash
+DIAGNOSTICS_OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze diagnostics --output-dir "$DIAGNOSTICS_OUTPUT_DIR"
+find "$DIAGNOSTICS_OUTPUT_DIR" -maxdepth 1 -type f -print
+```
+
+Writes exactly two files, always: `statistical_diagnostics.tsv` (one summary row) and
+`significant_variants.tsv` (the union of Bonferroni/BH discoveries, in original input row
+order -- header-only with zero rows when there are none). `--alpha` (default `0.05`) and
+`--fdr-level` (default `0.05`) are independent from each other and from the legacy
+`--threshold` above. This subcommand does not change what `manhattan`/`qq`/`regional`/
+`regions`/`top-variants`/`all` produce.
+
+### The multiple-testing family
+
+The family is fixed to **one `dataset_id` x the manifest's declared
+`pvalue_columns.primary` column (`pval`) x every variant that passed schema v1 validation
+for that one file**. The 6 Dryad files are never combined; Miyagi and Shumari are never
+combined; the 3 traits are never combined; a post-hoc visualization region is never treated
+as its own family; and `p_wald`/`p_score` are never substituted for `pval`. The
+implementation reads the corrected column's name from the loaded manifest object, not a
+hardcoded `"pval"` literal, and asserts that the number of p-values it loads equals the row
+count schema v1 validation actually counted for that file (not `manifest.toml`'s declared
+`row_count` taken on faith).
+
+### Bonferroni
+
+Family-wise alpha default `0.05`; threshold `alpha / m` where `m` is the family's test
+count; a variant is significant iff `p <= alpha / m` (equivalently
+`min(p * m, 1.0) <= alpha`). This is a threshold **for this dataset's own multiple-testing
+family only** -- not a universal genome-wide-significance level -- and it is not adjusted
+for linkage disequilibrium among SNPs (`m` is the raw variant count, not an
+LD-pruned effective-test count), so it may be conservative.
+
+### Benjamini-Hochberg FDR
+
+Computed via `scipy.stats.false_discovery_control(pvalues, method="bh")`. The adjusted
+p-value column is named `pval_bh`; it is a BH-adjusted p-value, **not a Storey-style
+q-value** (a different estimator this repository does not implement), and this repository
+never calls it a "q-value" unqualified. `bh_raw_p_cutoff` is the largest raw `pval` among
+rejected variants, or empty when there are zero discoveries.
+
+**Dependency condition:** the original Benjamini & Hochberg (1995) FDR guarantee holds
+under independence; Benjamini & Yekutieli (2001) extended it to positive regression
+dependency on a subset (PRDS) -- a specific, narrower condition than "any dependence
+structure." SNPs in this dataset are correlated through linkage disequilibrium, and this
+repository has **not** demonstrated that `pval` here satisfies PRDS. This repository does
+not claim FDR control under arbitrary dependence, does not conflate the 1995 (independence)
+and 2001 (PRDS) results, and does not implement the Benjamini-Yekutieli correction itself.
+
+### Genomic inflation factor (lambda_GC)
+
+```
+chi2_values     = scipy.stats.chi2.isf(pvalues, df=1)
+expected_median = scipy.stats.chi2.ppf(0.5, df=1)
+lambda_gc       = median(chi2_values) / expected_median
+```
+
+Uses the survival-function side (`isf`) to avoid catastrophic cancellation at small
+p-values, never substitutes `-2 * log(p)`, never rounds `expected_median` to a fixed
+literal, and maps `p == 1` to `chi2 == 0`. lambda_GC is reported **as a diagnostic value
+only**: nothing here divides a test statistic or p-value by it, and no
+genomic-control-adjusted p-value is produced. lambda_GC alone does not establish or rule out
+population stratification, kinship, or batch effects as the cause of any inflation --
+polygenicity also inflates GWAS test statistics and is not distinguishable from confounding
+by lambda_GC alone (Bulik-Sullivan et al. 2015, "LD Score Regression Distinguishes
+Confounding from Polygenicity"). LD Score regression, which could make that distinction, is
+out of scope here because this repository has neither individual-level genotypes nor a
+validated LD reference.
+
+**Evidence for the `df=1` assumption, stated precisely:** Dryad's own dataset metadata for
+this archive states the GWAS was run with GEMMA; Dryad's data dictionary defines `pval` as
+the likelihood-ratio-test (LRT) p-value; GEMMA's univariate linear mixed model (whose output
+columns match this dataset's schema exactly) tests a single scalar marker effect `beta` via
+`H0: beta = 0` against `H1: beta != 0` for each SNP, and `df=1` follows from that
+single-free-parameter test formulation. **The publication's own Methods/Supplementary
+Methods text has not been checked** (`science.org` returned `403 Forbidden`; no accessible
+preprint was found), so `df=1` is an explicit analysis assumption grounded in the confirmed
+output contract and the GEMMA model documentation -- not a fact confirmed by reading the
+paper itself. If information contradicting `df=1` for this dataset is found later, lambda_GC
+must be re-evaluated before being relied upon.
+
+### Real-data measurements are this machine's reference values only
+
+Any wall-time or peak-RSS figures recorded for `diagnostics` (in Issue #7's PR description)
+were measured on one specific Linux x86_64 machine at one point in time and are recorded
+only to confirm the computation fits comfortably in memory for one dataset -- they are not a
+performance benchmark and say nothing about other hardware.
 
 ---
 
