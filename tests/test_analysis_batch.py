@@ -126,8 +126,8 @@ class ValidationAndLoadCountTests(BatchTestCase):
     def test_validation_runs_exactly_once_per_dataset(self) -> None:
         self._write_all_six_valid()
         with mock.patch(
-            "adzuki_gwas_analysis.analysis.batch.ensure_validated_with_result",
-            side_effect=batch.ensure_validated_with_result,
+            "adzuki_gwas_analysis.analysis.batch.ensure_validated_entry",
+            side_effect=batch.ensure_validated_entry,
         ) as mocked:
             batch.run_batch(
                 manifest_path=self.manifest_path,
@@ -135,6 +135,22 @@ class ValidationAndLoadCountTests(BatchTestCase):
                 output_dir=self.output_dir,
             )
         self.assertEqual(mocked.call_count, 6)
+
+    def test_manifest_is_loaded_exactly_once_for_the_whole_batch(self) -> None:
+        # manifest.toml must be parsed once at the start of run_batch, not once per
+        # dataset -- ensure_validated_entry (used per dataset) takes an already-loaded
+        # Manifest and never calls load_manifest itself.
+        self._write_all_six_valid()
+        with mock.patch(
+            "adzuki_gwas_analysis.analysis.batch.load_manifest",
+            side_effect=batch.load_manifest,
+        ) as mocked:
+            batch.run_batch(
+                manifest_path=self.manifest_path,
+                data_dir=self.data_dir,
+                output_dir=self.output_dir,
+            )
+        self.assertEqual(mocked.call_count, 1)
 
     def test_dataframe_load_runs_exactly_once_per_dataset(self) -> None:
         self._write_all_six_valid()
@@ -196,6 +212,47 @@ class MemoryDisciplineTests(BatchTestCase):
             "a DataFrame from a previous dataset is still referenced after run_batch "
             "returned -- batch results must not keep any dataset's DataFrame alive",
         )
+
+    def test_previous_dataframe_is_released_before_the_next_dataset_loads(self) -> None:
+        # Stronger than the "all released by the end" check above: this asserts, at the
+        # moment each dataset's load begins (dataset #2 onward), that every earlier
+        # dataset's DataFrame is *already* garbage-collected -- proving datasets are
+        # released one at a time as the batch progresses, not merely all released in bulk
+        # once run_batch finally returns.
+        self._write_all_six_valid()
+        seen_refs: list[weakref.ReferenceType[pd.DataFrame]] = []
+        original_loader = batch.load_analysis_frame
+        call_index = 0
+
+        def _tracking_loader(path: Path) -> pd.DataFrame:
+            nonlocal call_index
+            call_index += 1
+            if call_index > 1:
+                gc.collect()
+                still_alive = [ref for ref in seen_refs if ref() is not None]
+                self.assertEqual(
+                    still_alive,
+                    [],
+                    f"loading dataset #{call_index} found a still-alive DataFrame from "
+                    f"an earlier dataset -- each dataset's DataFrame must be released "
+                    f"before the next dataset's load begins, not just by the time "
+                    f"run_batch returns",
+                )
+            df = original_loader(path)
+            seen_refs.append(weakref.ref(df))
+            return df
+
+        with mock.patch(
+            "adzuki_gwas_analysis.analysis.batch.load_analysis_frame",
+            side_effect=_tracking_loader,
+        ):
+            batch.run_batch(
+                manifest_path=self.manifest_path,
+                data_dir=self.data_dir,
+                output_dir=self.output_dir,
+            )
+
+        self.assertEqual(call_index, 6)
 
     def test_batch_dataset_result_holds_only_scalars_and_paths(self) -> None:
         self._write_all_six_valid()

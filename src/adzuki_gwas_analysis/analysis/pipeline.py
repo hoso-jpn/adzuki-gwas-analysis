@@ -114,21 +114,42 @@ class ValidatedDatasetInfo:
     validation: ValidationResult
 
 
+def ensure_validated_entry(
+    *, manifest: Manifest, entry: DatasetEntry, data_dir: Path
+) -> ValidatedDatasetInfo:
+    """Validate one already-resolved ``entry`` against an already-loaded ``manifest``.
+
+    Unlike :func:`ensure_validated_with_result`, this never calls
+    :func:`~adzuki_gwas_analysis.manifest.load_manifest` itself -- callers that already hold
+    a :class:`Manifest` (e.g. :func:`adzuki_gwas_analysis.analysis.batch.run_batch`, which
+    loads it exactly once for the whole batch and then validates each of its 6 entries in
+    turn) use this to avoid re-parsing ``manifest.toml`` once per dataset. Calls
+    :func:`~adzuki_gwas_analysis.validate.validate_dataset` exactly once, the same single
+    pass over the file every other validation path here performs.
+    """
+    result = validate_dataset(entry, data_dir)
+    if not result.success:
+        raise DatasetValidationFailedError(
+            dataset_id=entry.dataset_id, reason=result.error or "unknown"
+        )
+    return ValidatedDatasetInfo(manifest=manifest, entry=entry, validation=result)
+
+
 def ensure_validated_with_result(
     *, manifest_path: Path, data_dir: Path, dataset_id: str
 ) -> ValidatedDatasetInfo:
     """Like :func:`ensure_validated`, but also returns the manifest and full validation result.
 
-    Calls :func:`~adzuki_gwas_analysis.validate.validate_dataset` exactly once -- the same
-    single pass over the file that :func:`ensure_validated` already performs -- so using this
+    Loads the manifest and resolves ``dataset_id`` to a
+    :class:`~adzuki_gwas_analysis.manifest.DatasetEntry`, then delegates to
+    :func:`ensure_validated_entry`. Calls
+    :func:`~adzuki_gwas_analysis.validate.validate_dataset` exactly once -- the same single
+    pass over the file that :func:`ensure_validated` already performs -- so using this
     instead adds no extra raw-file scan.
     """
     manifest = load_manifest(manifest_path)
     entry = _get_entry(manifest, dataset_id)
-    result = validate_dataset(entry, data_dir)
-    if not result.success:
-        raise DatasetValidationFailedError(dataset_id=dataset_id, reason=result.error or "unknown")
-    return ValidatedDatasetInfo(manifest=manifest, entry=entry, validation=result)
+    return ensure_validated_entry(manifest=manifest, entry=entry, data_dir=data_dir)
 
 
 def load_validated_frame(*, manifest_path: Path, data_dir: Path, dataset_id: str) -> pd.DataFrame:

@@ -226,6 +226,25 @@ class TsvWriteFailureTests(BatchFailureTestCase):
         self.assertEqual(call_count, 13)
 
 
+class PublishFailureTests(BatchFailureTestCase):
+    def test_final_publish_failure_leaves_no_partial_output(self) -> None:
+        # os.replace(staging_dir, output_dir) is the very last step of run_batch, after
+        # every dataset and batch_summary.tsv already succeeded. If it fails (a race, a
+        # permission error, a cross-device rename), the staging directory -- which by this
+        # point holds a fully-built, 25-file tree -- must still be cleaned up, not left
+        # behind as an orphaned near-complete batch.
+        self._write_all_six_valid()
+        with (
+            mock.patch(
+                "adzuki_gwas_analysis.analysis.batch.os.replace",
+                side_effect=OSError("simulated publish failure"),
+            ),
+            self.assertRaises(OSError),
+        ):
+            self._run_batch_recording_staging_dir()
+        self._assert_no_partial_output()
+
+
 class InvalidParameterTests(BatchFailureTestCase):
     def test_invalid_alpha_fails_before_anything_is_created(self) -> None:
         self._write_all_six_valid()

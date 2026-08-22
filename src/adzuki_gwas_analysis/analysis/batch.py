@@ -1,5 +1,14 @@
 """Sequential, single-pass batch orchestration across all 6 manifest-declared datasets.
 
+``manifest.toml`` itself is loaded exactly once, at the start of :func:`run_batch` --
+never once per dataset. Each of its 6 declared entries is then validated via
+:func:`~adzuki_gwas_analysis.analysis.pipeline.ensure_validated_entry`, which takes that
+already-loaded :class:`~adzuki_gwas_analysis.manifest.Manifest` object directly and calls
+:func:`~adzuki_gwas_analysis.validate.validate_dataset` without re-parsing the manifest
+file (unlike :func:`~adzuki_gwas_analysis.analysis.pipeline.ensure_validated_with_result`,
+which the standalone single-dataset ``diagnostics`` subcommand uses, and which does load
+the manifest itself since it only ever validates one dataset per call).
+
 For each dataset, in ``manifest.toml``'s own declared order (never re-sorted): resolve the
 manifest entry, run schema v1 validation exactly once, load its analysis DataFrame exactly
 once, and reuse that one DataFrame for its Manhattan plot, QQ plot, and Bonferroni/BH/
@@ -47,13 +56,13 @@ from adzuki_gwas_analysis.analysis.pipeline import (
     ValidatedDatasetInfo,
     atomic_write_tsv,
     compute_diagnostics_result,
-    ensure_validated_with_result,
+    ensure_validated_entry,
     validate_threshold,
 )
 from adzuki_gwas_analysis.analysis.plotting import plot_manhattan, plot_qq
 from adzuki_gwas_analysis.analysis.qq import compute_qq_points
 from adzuki_gwas_analysis.errors import BatchOutputDirectoryUnsafeError
-from adzuki_gwas_analysis.manifest import DatasetEntry, load_manifest
+from adzuki_gwas_analysis.manifest import DatasetEntry, Manifest, load_manifest
 
 #: Bumped only if batch_summary.tsv's column set/meaning changes.
 BATCH_SUMMARY_SCHEMA_VERSION = 1
@@ -144,7 +153,7 @@ def _relative_posix(path: Path, base: Path) -> str:
 
 def _process_one_dataset(
     *,
-    manifest_path: Path,
+    manifest: Manifest,
     data_dir: Path,
     entry: DatasetEntry,
     dataset_staging_dir: Path,
@@ -154,12 +163,15 @@ def _process_one_dataset(
 ) -> BatchDatasetResult:
     """Validate once, load once, render both plots, compute diagnostics, write all 4 files.
 
-    Everything that touches the loaded DataFrame or a p-value/adjusted-p-value array is
-    local to this function's stack frame; only the returned :class:`BatchDatasetResult`
-    (scalars and path strings) escapes it.
+    Takes the already-loaded ``manifest`` (loaded exactly once, by :func:`run_batch`, for
+    the whole 6-dataset run) rather than a ``manifest_path`` -- validating via
+    :func:`~adzuki_gwas_analysis.analysis.pipeline.ensure_validated_entry` means this
+    function never re-parses ``manifest.toml`` itself. Everything that touches the loaded
+    DataFrame or a p-value/adjusted-p-value array is local to this function's stack frame;
+    only the returned :class:`BatchDatasetResult` (scalars and path strings) escapes it.
     """
-    info: ValidatedDatasetInfo = ensure_validated_with_result(
-        manifest_path=manifest_path, data_dir=data_dir, dataset_id=entry.dataset_id
+    info: ValidatedDatasetInfo = ensure_validated_entry(
+        manifest=manifest, entry=entry, data_dir=data_dir
     )
     variant_df = load_analysis_frame(data_dir / info.entry.member_filename)
 
@@ -323,7 +335,7 @@ def run_batch(
             dataset_staging_dir = staging_dir / entry.dataset_id
             dataset_results.append(
                 _process_one_dataset(
-                    manifest_path=manifest_path,
+                    manifest=manifest,
                     data_dir=data_dir,
                     entry=entry,
                     dataset_staging_dir=dataset_staging_dir,
@@ -337,11 +349,15 @@ def run_batch(
         summary_table = build_batch_summary_table(results)
         summary_path = staging_dir / "batch_summary.tsv"
         atomic_write_tsv(summary_table, summary_path)
+
+        os.replace(staging_dir, output_dir)
     except BaseException:
+        # os.replace() is inside this try too: if the final publish itself fails (e.g. a
+        # race, a permission error, a cross-device rename), the staging directory must be
+        # cleaned up the same as any earlier failure -- it must never be left orphaned
+        # next to a still-absent output_dir.
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise
-
-    os.replace(staging_dir, output_dir)
 
     return BatchOutcome(
         output_dir=output_dir,
