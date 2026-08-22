@@ -10,6 +10,7 @@ Usage::
     adzuki-gwas-analyze top-variants --output out/top_variants_by_region.tsv
     adzuki-gwas-analyze all --output-dir out/
     adzuki-gwas-analyze diagnostics --output-dir out/
+    adzuki-gwas-analyze batch --output-dir out/
 
 Every subcommand validates its dataset against the schema v1 manifest
 (:mod:`adzuki_gwas_analysis.validate`) before producing any output, and exits
@@ -26,6 +27,18 @@ over one dataset's manifest-declared primary p-value column only -- see
 ``--fdr-level`` flags, not ``--threshold`` (a distinct, legacy visualization
 concept), and does not change what ``manhattan``/``qq``/``regional``/``regions``/
 ``top-variants``/``all`` produce.
+
+``batch`` (see :mod:`adzuki_gwas_analysis.analysis.batch`) processes every dataset
+declared in the manifest, in the manifest's own order -- there is no ``--dataset-id``.
+For each dataset it validates once, loads its analysis DataFrame once, and reuses that
+one DataFrame for its Manhattan plot, QQ plot, and diagnostics before moving to the
+next dataset; no two datasets' DataFrames are ever held at once, and each dataset's
+Bonferroni/BH/lambda_GC family stays independent of the other 5. Output is a
+6-directory, 25-file tree (4 files per dataset plus a root ``batch_summary.tsv``),
+published to ``--output-dir`` only after every dataset succeeds -- ``--output-dir``
+must not already exist as a non-empty directory. ``batch`` does not render regional
+plots or a top-variant-by-region TSV (both specific to ``miyagi_water_permeability``'s
+post-hoc regions) and does not change ``all``'s own output.
 """
 
 from __future__ import annotations
@@ -34,6 +47,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from adzuki_gwas_analysis.analysis.batch import run_batch
 from adzuki_gwas_analysis.analysis.pipeline import (
     DEFAULT_ALPHA,
     DEFAULT_FDR_LEVEL,
@@ -150,6 +164,51 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Benjamini-Hochberg FDR level (not the legacy --threshold)",
     )
 
+    batch = subparsers.add_parser(
+        "batch",
+        help=(
+            "Sequentially process all 6 manifest-declared datasets: Manhattan + QQ + "
+            "diagnostics for each, plus one batch_summary.tsv"
+        ),
+    )
+    batch.add_argument(
+        "--manifest", type=Path, default=DEFAULT_MANIFEST, help="Path to manifest.toml"
+    )
+    batch.add_argument(
+        "--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Directory with .assoc.txt files"
+    )
+    batch.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help=(
+            "Output directory (required, must not already exist non-empty). No "
+            "--dataset-id: batch always processes every dataset in manifest.toml, in "
+            "its own declared order."
+        ),
+    )
+    batch.add_argument(
+        "--alpha",
+        type=float,
+        default=DEFAULT_ALPHA,
+        help="Bonferroni family-wise alpha, applied independently per dataset",
+    )
+    batch.add_argument(
+        "--fdr-level",
+        type=float,
+        default=DEFAULT_FDR_LEVEL,
+        help="Benjamini-Hochberg FDR level, applied independently per dataset",
+    )
+    batch.add_argument(
+        "--threshold",
+        type=float,
+        default=DEFAULT_THRESHOLD,
+        help=(
+            "Legacy visualization threshold line for each dataset's Manhattan/QQ plots "
+            "(not a Bonferroni-corrected or genome-wide-significance level)"
+        ),
+    )
+
     return parser
 
 
@@ -262,6 +321,30 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Saved: {diagnostics_outcome.summary_path}")
             print(f"Saved: {diagnostics_outcome.significant_variants_path}")
+
+        elif args.command == "batch":
+            batch_outcome = run_batch(
+                manifest_path=args.manifest,
+                data_dir=args.data_dir,
+                output_dir=args.output_dir,
+                alpha=args.alpha,
+                fdr_level=args.fdr_level,
+                threshold=args.threshold,
+            )
+            for dataset_result in batch_outcome.datasets:
+                print(
+                    f"{dataset_result.dataset_id}: n_tests={dataset_result.n_tests} "
+                    f"bonferroni_discoveries={dataset_result.bonferroni_discoveries} "
+                    f"bh_discoveries={dataset_result.bh_discoveries} "
+                    f"lambda_gc={dataset_result.lambda_gc:.6g}"
+                )
+            print(
+                f"Total n_tests across {len(batch_outcome.datasets)} datasets: "
+                f"{batch_outcome.total_n_tests} (not a shared multiple-testing family)"
+            )
+            print(f"Saved: {batch_outcome.summary_path}")
+            n_datasets = len(batch_outcome.datasets)
+            print(f"Saved: {batch_outcome.output_dir} ({n_datasets} dataset directories)")
 
         else:  # pragma: no cover - argparse enforces valid choices
             parser.error(f"unknown command {args.command!r}")

@@ -206,3 +206,20 @@ class DuplicateVariantError(GwasContractError):
             f"[dataset={dataset_id}] {path!r}: duplicate variant key {key!r} "
             f"at row {duplicate_row_number} (first seen at row {first_row_number})"
         )
+
+
+class BatchOutputDirectoryUnsafeError(GwasContractError):
+    """A batch run's ``--output-dir`` is not safe to write into as-is.
+
+    Raised before any dataset is validated, loaded, or written -- a batch run publishes
+    all 6 datasets' artifacts plus ``batch_summary.tsv`` as one all-or-nothing unit, so an
+    existing non-empty directory, a symlink standing in for the real destination, or
+    anything else this check cannot confirm is an ordinary, empty (or not-yet-existing)
+    real directory is rejected up front rather than silently reused, merged into, or
+    replaced.
+    """
+
+    def __init__(self, *, output_dir: str, reason: str) -> None:
+        self.output_dir = output_dir
+        self.reason = reason
+        super().__init__(f"--output-dir {output_dir!r} is not safe to use: {reason}")
