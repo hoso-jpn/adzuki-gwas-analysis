@@ -128,7 +128,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dataset-id", default=DEFAULT_DATASET_ID, help="Manifest dataset_id to analyze"
     )
     diagnostics.add_argument(
-        "--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory"
+        "--output-dir",
+        type=Path,
+        required=True,
+        help=(
+            "Output directory (required -- unlike the other subcommands, there is no "
+            "default, so a bare `diagnostics` invocation can never write into the "
+            f"tracked {DEFAULT_OUTPUT_DIR}/ during real-data smoke testing)"
+        ),
     )
     diagnostics.add_argument(
         "--alpha",

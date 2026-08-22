@@ -6,10 +6,20 @@ if it fails -- before touching pandas, matplotlib, or the output directory
 at all. No function in this module produces a plot or TSV for a dataset that
 failed validation.
 
-``threshold`` throughout is the legacy ``1e-5`` visualization line used by
-the original scripts. It is not a Bonferroni-corrected or genome-wide
-significance threshold -- it is not derived from any multiple-testing
-correction, and this module does not compute one.
+``threshold`` throughout (``run_manhattan``/``run_single_regional``/``run_regions``/
+``run_all``) is the legacy ``1e-5`` visualization line used by the original scripts.
+It is not a Bonferroni-corrected or genome-wide significance threshold, and drawing
+it does not itself perform any multiple-testing correction.
+
+Multiple-testing correction is a separate responsibility, orchestrated by
+``run_diagnostics`` below: it validates and loads a dataset exactly like every
+other ``run_*`` function here, then delegates the actual Bonferroni/
+Benjamini-Hochberg/lambda_GC computation to
+:mod:`adzuki_gwas_analysis.analysis.statistics` (no numeric logic lives in this
+module) before writing its own, independent output files. Plotting's
+``threshold`` and ``run_diagnostics``'s ``alpha``/``fdr_level`` are unrelated
+values for unrelated purposes -- one draws a line on a plot, the other
+computes a statistical correction -- and neither substitutes for the other.
 """
 
 from __future__ import annotations

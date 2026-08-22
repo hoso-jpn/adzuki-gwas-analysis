@@ -169,16 +169,73 @@ class DiagnosticsCommandTests(DiagnosticsCliTestCase):
         self.assertEqual(code, 0)
         self.assertTrue((nested_output_dir / "statistical_diagnostics.tsv").is_file())
 
-    def test_default_output_dir_is_plots_matching_other_subcommands(self) -> None:
-        # Does not run the CLI (would write into ./plots); only checks the
-        # parser default, matching --output-dir's default for manhattan/qq/etc.
+    def test_output_dir_is_required_and_has_no_default(self) -> None:
+        # Unlike manhattan/qq/regions/all, diagnostics must not default to
+        # ./plots -- omitting --output-dir must be an argument error (exit 2),
+        # never a silent write into the tracked plots/ directory.
         module = importlib.import_module("adzuki_gwas_analysis.analysis.cli")
         parser = module._build_parser()
-        args = parser.parse_args(["diagnostics"])
-        self.assertEqual(args.output_dir, module.DEFAULT_OUTPUT_DIR)
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf), self.assertRaises(SystemExit) as ctx:
+            parser.parse_args(["diagnostics"])
+        self.assertEqual(ctx.exception.code, 2)
+        self.assertIn("--output-dir", buf.getvalue())
+
+    def test_output_dir_provided_parses_successfully(self) -> None:
+        module = importlib.import_module("adzuki_gwas_analysis.analysis.cli")
+        parser = module._build_parser()
+        args = parser.parse_args(["diagnostics", "--output-dir", "/tmp/some-diagnostics-dir"])
+        self.assertEqual(args.output_dir, Path("/tmp/some-diagnostics-dir"))
         self.assertEqual(args.alpha, module.DEFAULT_ALPHA)
         self.assertEqual(args.fdr_level, module.DEFAULT_FDR_LEVEL)
         self.assertFalse(hasattr(args, "threshold"))
+
+    def test_output_dir_provided_runs_successfully_end_to_end(self) -> None:
+        self._write_valid_dataset()
+        code, _ = self._run(
+            [
+                "diagnostics",
+                "--manifest",
+                str(self.manifest_path),
+                "--data-dir",
+                str(self.data_dir),
+                "--dataset-id",
+                "miyagi_water_permeability",
+                "--output-dir",
+                str(self.output_dir),
+            ]
+        )
+        self.assertEqual(code, 0)
+
+    def test_existing_subcommands_output_dir_contract_is_unchanged(self) -> None:
+        # manhattan/qq/regions/all keep defaulting --output-dir to ./plots;
+        # regional/top-variants keep requiring --output explicitly. Only
+        # diagnostics's --output-dir contract changed in this fix.
+        module = importlib.import_module("adzuki_gwas_analysis.analysis.cli")
+        parser = module._build_parser()
+
+        for command in ("manhattan", "qq", "regions", "all"):
+            args = parser.parse_args([command])
+            self.assertEqual(args.output_dir, module.DEFAULT_OUTPUT_DIR)
+
+        missing_output_argv = {
+            "regional": [
+                "regional",
+                "--chrom",
+                "Chr01",
+                "--start",
+                "1000000",
+                "--end",
+                "2000000",
+            ],
+            "top-variants": ["top-variants"],
+        }
+        for _command, argv in missing_output_argv.items():
+            buf = io.StringIO()
+            with contextlib.redirect_stderr(buf), self.assertRaises(SystemExit) as ctx:
+                parser.parse_args(argv)
+            self.assertEqual(ctx.exception.code, 2)
+            self.assertIn("--output", buf.getvalue())
 
 
 if __name__ == "__main__":

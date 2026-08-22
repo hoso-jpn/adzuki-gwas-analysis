@@ -75,6 +75,30 @@ class ValidatePvaluesTests(unittest.TestCase):
         compute_lambda_gc(original)
         np.testing.assert_array_equal(original, snapshot)
 
+    def test_rejects_two_dimensional_array(self) -> None:
+        # A 2-D input would silently break the multiple-testing family
+        # contract: compute_bonferroni would treat it as one flat family of
+        # m=array.size tests, while scipy.stats.false_discovery_control
+        # defaults to per-column (axis=0) correction -- the two corrections
+        # would then describe different families from the same input.
+        two_d = np.array([[0.01, 0.04], [0.02, 0.80]])
+        with self.assertRaises(ValueError):
+            compute_bonferroni(two_d)
+        with self.assertRaises(ValueError):
+            compute_bh(two_d)
+        with self.assertRaises(ValueError):
+            compute_lambda_gc(two_d)
+
+    def test_rejects_zero_dimensional_array(self) -> None:
+        zero_d = np.array(0.05)
+        self.assertEqual(zero_d.ndim, 0)
+        with self.assertRaises(ValueError):
+            compute_bonferroni(zero_d)
+        with self.assertRaises(ValueError):
+            compute_bh(zero_d)
+        with self.assertRaises(ValueError):
+            compute_lambda_gc(zero_d)
+
 
 class ComputeBonferroniTests(unittest.TestCase):
     def test_threshold_is_alpha_over_m(self) -> None:
@@ -209,13 +233,12 @@ class ComputeLambdaGcTests(unittest.TestCase):
         self.assertAlmostEqual(result.lambda_gc, 0.0)
 
     def test_does_not_use_minus_two_log_p_substitute(self) -> None:
-        # If the implementation used -2*log(p) instead of chi2.isf, lambda_gc
-        # for this all-p=0.05 vector would come out close to
-        # (-2*log(0.05)) / chi2_median, not 1.0. The correct chi2.isf(0.05,1)
-        # equals the chi2 median's *scaling factor* such that lambda_gc == 1
-        # exactly when every p equals chi2.ppf(0.5, df) inverted back to a
-        # p-value -- more directly: for p=0.05 repeated, lambda_gc must equal
-        # the known ratio below, not the -2log(p)-based ratio.
+        # -2*log(p) is chi2.isf(p, df=2), not chi2.isf(p, df=1) -- a wrong
+        # substitute here, not merely a different derivation of the same
+        # value. For an all-p=0.05 vector, the correct df=1 result is
+        # chi2.isf(0.05, df=1) / chi2.ppf(0.5, df=1); the wrong substitute
+        # would instead compute (-2*log(0.05)) / chi2.ppf(0.5, df=1) --
+        # visibly different (see the assertion below).
         pvalues = np.full(5, 0.05)
         result = compute_lambda_gc(pvalues, df=1)
         correct_ratio = _CHI2_1DF_CRITICAL_AT_P05 / _CHI2_1DF_MEDIAN

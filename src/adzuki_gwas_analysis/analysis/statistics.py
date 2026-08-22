@@ -47,6 +47,15 @@ def _validate_pvalues(pvalues: np.ndarray) -> np.ndarray:
     every function in this module leaves its input untouched.
     """
     array = np.array(pvalues, dtype="float64", copy=True)
+    if array.ndim != 1:
+        raise ValueError(
+            f"pvalues must be a one-dimensional array, got ndim={array.ndim}; a 2-D "
+            f"input would silently break the multiple-testing family contract -- "
+            f"compute_bonferroni would treat it as one flat family of m=array.size "
+            f"tests, while scipy.stats.false_discovery_control defaults to per-column "
+            f"(axis=0) correction, so the two corrections would no longer describe "
+            f"the same family"
+        )
     if array.size == 0:
         raise ValueError("pvalues must not be empty")
     if not np.isfinite(array).all() or not ((array > 0.0) & (array <= 1.0)).all():
@@ -164,9 +173,12 @@ def compute_lambda_gc(pvalues: np.ndarray, *, df: int = 1) -> LambdaGcResult:
 
     Uses the survival-function side (``isf``) rather than
     ``chi2.ppf(1 - p, df)`` to avoid catastrophic cancellation at small
-    p-values, and never substitutes the common ``-2 * log(p)`` approximation
-    (which is only equal to the 1-df chi-square inverse survival function
-    exactly at ``df=1`` in a different derivation, not a general substitute).
+    p-values, and never substitutes the common ``-2 * log(p)`` approximation.
+    That quantity is exactly ``chi2.isf(p, df=2)`` (e.g. at ``p=0.5``,
+    ``-2 * log(0.5) == 1.386294...  == chi2.isf(0.5, df=2)``) -- it is *not*
+    equal to ``chi2.isf(p, df=1)`` (``chi2.isf(0.5, df=1) == 0.454936...``),
+    so using it here would silently compute a 2-df quantity while this
+    module's ``df`` parameter (default ``1``) says otherwise.
     ``expected_median`` is computed via ``chi2.ppf``, not rounded to a fixed
     literal, so it reflects the ``df`` actually used. ``p == 1`` maps to
     ``chi2 == 0`` (``isf(1.0, df) == 0.0``).
