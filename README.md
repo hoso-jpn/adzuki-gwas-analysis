@@ -294,10 +294,11 @@ Compare the regional/Manhattan/QQ PNGs under `$OUTPUT_DIR` against the tracked `
 files by inspection (dimensions and content); this repository does not assert byte-for-byte
 PNG equivalence, only TSV equivalence and PNG dimension/content equivalence.
 
-This is a correctness check, not a performance benchmark. Any wall-time or peak-memory
-numbers reported for this repository were measured on a single Apple Silicon Mac and are
-recorded only to confirm the analysis fits comfortably in memory (one dataset processed at
-a time) -- they say nothing about Linux/production performance.
+This is a correctness check, not a performance benchmark. Wall-time and peak-memory
+figures reported anywhere in this repository's history (Issue/PR descriptions) are
+measured on whichever specific machine ran that specific verification -- recorded only to
+confirm the analysis fits comfortably in memory (one dataset processed at a time) -- and
+are never a performance guarantee or SLA for any other environment.
 
 ---
 
@@ -398,6 +399,110 @@ Any wall-time or peak-RSS figures recorded for `diagnostics` (in Issue #7's PR d
 were measured on one specific Linux x86_64 machine at one point in time and are recorded
 only to confirm the computation fits comfortably in memory for one dataset -- they are not a
 performance benchmark and say nothing about other hardware.
+
+---
+
+## Batch Analysis (all 6 datasets)
+
+[Issue #9](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/9) adds
+`adzuki-gwas-analyze batch`: Manhattan + QQ + Bonferroni/BH-FDR/lambda_GC diagnostics for
+**every** dataset declared in `manifest.toml`, in that file's own order, in one command.
+This is the standard, auditable artifact set this repository produces per public GWAS
+dataset -- a candidate input for future work (e.g. candidate-SNP extraction, flanking-SNP
+reporting, or customer-facing summaries), **not** an implementation of any of that here.
+
+```bash
+BATCH_OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze batch --output-dir "$BATCH_OUTPUT_DIR"
+find "$BATCH_OUTPUT_DIR" -type f | sort
+```
+
+`--output-dir` is required and must not already exist as a non-empty directory (batch
+publishes all 25 files as one all-or-nothing unit; see
+[Output structure and transaction semantics](#output-structure-and-transaction-semantics)
+below). There is no `--dataset-id` -- `batch` always processes all 6 canonical datasets.
+`--alpha`/`--fdr-level` (both default `0.05`) and `--threshold` (default `1e-5`, the same
+legacy visualization line described above) are applied independently to each dataset.
+`batch` does not render regional plots or a top-variant-by-region TSV (both specific to
+`miyagi_water_permeability`'s post-hoc regions) and does not change what `manhattan`/`qq`/
+`regional`/`regions`/`top-variants`/`all`/`diagnostics` produce.
+
+### One validation, one load, per dataset
+
+For each of the 6 datasets, `batch` validates against schema v1 exactly once, loads its
+analysis DataFrame exactly once, and reuses that one DataFrame for its Manhattan plot, QQ
+plot, and diagnostics -- never re-validating or re-loading the same file for a second
+artifact (unlike calling the standalone `manhattan`/`qq`/`diagnostics` subcommands three
+times per dataset, which would do exactly that). No two datasets' DataFrames, p-value
+arrays, or adjusted-p-value arrays are ever held in memory at once: only a small
+per-dataset result (scalars and output-relative paths) survives after that dataset's 4
+files are written, before the next dataset starts.
+
+### Each dataset is its own multiple-testing family
+
+Exactly as for the standalone `diagnostics` subcommand above: each dataset's family is
+**that one dataset_id x `pval` x its own schema-v1-validated variants**, computed and
+recorded independently of the other 5. Running `batch` never combines the 6 files, never
+combines Miyagi and Shumari, never combines the 3 traits, and never treats the sum of all 6
+datasets' row counts as a shared correction family. That sum -- **8,187,994** rows across
+`miyagi_water_permeability` (1,741,385), `miyagi_red_seedcoat` (1,255,203),
+`miyagi_mottled_black_seedcoat` (1,255,203), `shumari_water_permeability` (1,471,837),
+`shumari_red_seedcoat` (1,232,183), and `shumari_mottled_black_seedcoat` (1,232,183) -- is
+reported in `batch_summary.tsv` only as a total processed-row count, never as `m` for any
+Bonferroni/BH computation. Miyagi and Shumari coordinates are never compared against each
+other anywhere in `batch`'s output.
+
+### Plot titles reflect trait and reference genome
+
+Each dataset's Manhattan/QQ title is built from its manifest `trait`/`reference` fields
+(never by string-splitting `dataset_id`), using this fixed trait-label mapping:
+
+| `trait` | Label |
+|---|---|
+| `water_permeability` | Water Permeability |
+| `red_seedcoat` | Red Seed Coat Color |
+| `mottled_black_seedcoat` | Mottled Black Seed Coat Color |
+
+e.g. `miyagi_water_permeability` renders `Water Permeability GWAS (Miyagi reference)` on
+its Manhattan plot and `QQ Plot: Water Permeability GWAS (Miyagi reference)` on its QQ
+plot. The standalone `manhattan`/`qq` subcommands and the legacy `scripts/01`-`04`
+wrappers keep their own existing default titles, unchanged by `batch`.
+
+### Output structure and transaction semantics
+
+```text
+<output-dir>/
+├── batch_summary.tsv
+├── miyagi_water_permeability/       (4 files: _manhattan.png, _qq.png, statistical_diagnostics.tsv, significant_variants.tsv)
+├── miyagi_red_seedcoat/             (4 files)
+├── miyagi_mottled_black_seedcoat/   (4 files)
+├── shumari_water_permeability/      (4 files)
+├── shumari_red_seedcoat/            (4 files)
+└── shumari_mottled_black_seedcoat/  (4 files)
+```
+
+25 files total (6 x 4 + 1). The full tree is built in a staging directory next to
+`--output-dir` and only moved into place after all 6 datasets and `batch_summary.tsv` have
+succeeded; any failure (a bad `--alpha`/`--fdr-level`/`--threshold`, a failed validation, a
+row-count mismatch, a plotting or TSV-writing error) removes the staging directory and
+leaves `--output-dir` untouched -- no half-finished batch is ever left looking complete.
+
+`batch_summary.tsv` has one row per dataset, in manifest order, with (at least) the same
+per-dataset diagnostic columns as `statistical_diagnostics.tsv` above, plus `reference`,
+`trait`, `visualization_threshold`, and the 4 artifact paths (`manhattan_path`, `qq_path`,
+`diagnostics_path`, `significant_variants_path`) -- always relative, POSIX-style paths
+under `--output-dir`, never an absolute or host-specific path.
+
+### Real-data smoke test: always a scratch directory
+
+```bash
+SMOKE_OUTPUT_DIR="$(mktemp -d)"
+MPLBACKEND=Agg uv run adzuki-gwas-analyze batch --output-dir "$SMOKE_OUTPUT_DIR"
+```
+
+Never point `--output-dir` at `plots/` or `results/` directly. Any wall-time/peak-RSS
+figures recorded for a `batch` run are that one run's reference values on that one
+machine, not a performance guarantee or SLA for any other environment.
 
 ---
 

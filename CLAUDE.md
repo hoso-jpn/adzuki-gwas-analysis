@@ -41,6 +41,12 @@ git diff --check
   書き出す bundle コマンドであり、tracked成果物の再現コマンドではない（README参照）。
   実データで動作確認するときは常に一時 output directory（`mktemp -d` 等）へ出力し、
   `plots/`/`results/` を直接指定しない。
+- `analysis/batch.py`の`batch` subcommandは6データセットをmanifest記載順に逐次処理する。
+  1データセットにつき validation 1回・DataFrame load 1回のみで、その同じDataFrameから
+  Manhattan/QQ/diagnosticsを全て作る（`analysis/pipeline.py`の`compute_diagnostics_result`
+  が「既にload済みのDataFrameから計算する」内部APIを提供する）。6件のDataFrameや
+  adjusted p-value配列を同時保持しない。出力はstaging directoryへ全25ファイルを作った後
+  `--output-dir`へ一括publishし、途中失敗時はstagingを削除して`--output-dir`を変更しない。
 
 ## データ
 
@@ -72,6 +78,9 @@ git diff --check
   stratification/kinship/batch effect/polygenicityの原因を断定しない。df=1の根拠は
   Dryad metadata・GEMMA univariate LMMのモデル記述であり、論文本文Methodsは未確認
   （README「Statistical Diagnostics」節参照）。
+- `batch`は6データセットそれぞれを独立したfamilyとして扱う。合計8,187,994行という数字は
+  処理件数の合計であり、6データセットを1つの補正対象（共通family）として扱った結果では
+  ない。MiyagiとShumariの座標を比較・結合しない。
 - config/water_permeability_regions.toml の窓は Manhattan plot を目視して事後に選んだ
   post-hoc visualization window。独立に定義されたQTL区間やLD blockであると断定しない。
 - 本リポジトリは公開 summary statistics を可視化・再解析するだけで GWAS を再実行しない。

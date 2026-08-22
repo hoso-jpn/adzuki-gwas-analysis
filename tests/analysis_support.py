@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from adzuki_gwas_analysis.loader import compute_sha256, count_data_rows
+from adzuki_gwas_analysis.manifest import SCHEMA_V1_DATASETS
 
 HEADER = (
     "chr\trs\tpos\tn_miss\tallele1\tallele0\taf\tbeta\tse\t"
@@ -117,6 +118,95 @@ def write_manifest(manifest_path: Path, dataset_path: Path) -> Path:
             sha256=compute_sha256(dataset_path),
             row_count=count_data_rows(dataset_path),
         ),
+        encoding="utf-8",
+    )
+    return manifest_path
+
+
+#: The 6 (reference, trait) pairs, in the exact order manifest.toml itself declares them
+#: (Miyagi x 3 traits, then Shumari x 3 traits) -- used by the batch ("Issue #9") fixture
+#: helpers below, which (unlike write_manifest/write_dataset_file above) write a *real*,
+#: independently checksummed fixture file for all 6 canonical datasets, not just
+#: miyagi_water_permeability.
+CANONICAL_REFERENCE_TRAIT_ORDER: tuple[tuple[str, str], ...] = (
+    ("Miyagi", "water_permeability"),
+    ("Miyagi", "red_seedcoat"),
+    ("Miyagi", "mottled_black_seedcoat"),
+    ("Shumari", "water_permeability"),
+    ("Shumari", "red_seedcoat"),
+    ("Shumari", "mottled_black_seedcoat"),
+)
+
+
+def write_six_dataset_files(
+    data_dir: Path, rows_by_dataset_id: dict[str, list[str]]
+) -> dict[str, Path]:
+    """Write one small, schema-v1-valid fixture file per canonical dataset_id.
+
+    ``rows_by_dataset_id`` must have exactly the 6 canonical dataset_ids as keys (see
+    :data:`CANONICAL_REFERENCE_TRAIT_ORDER` /
+    :data:`adzuki_gwas_analysis.manifest.SCHEMA_V1_DATASETS`). Returns
+    ``{dataset_id: path}``, one real file per dataset -- unlike ``write_dataset_file``
+    above, none of these 6 are placeholders.
+    """
+    paths: dict[str, Path] = {}
+    for reference, trait in CANONICAL_REFERENCE_TRAIT_ORDER:
+        spec = SCHEMA_V1_DATASETS[(reference, trait)]
+        rows = rows_by_dataset_id[spec.dataset_id]
+        path = data_dir / spec.member_filename
+        path.write_text(HEADER + "\n" + "\n".join(rows) + "\n", encoding="utf-8")
+        paths[spec.dataset_id] = path
+    return paths
+
+
+def write_full_manifest(manifest_path: Path, dataset_paths: dict[str, Path]) -> Path:
+    """Write a schema-v1 manifest whose all 6 entries match real fixture files.
+
+    ``dataset_paths`` must be the return value of :func:`write_six_dataset_files` (or an
+    equivalent ``{dataset_id: path}`` mapping covering all 6 canonical dataset_ids); each
+    entry's ``member_sha256``/``row_count`` is computed directly from that dataset's real
+    file, in :data:`CANONICAL_REFERENCE_TRAIT_ORDER`'s order, matching
+    ``manifest.toml``'s own declared dataset order (Miyagi x 3 traits, then Shumari x 3
+    traits).
+    """
+    entries = []
+    for reference, trait in CANONICAL_REFERENCE_TRAIT_ORDER:
+        spec = SCHEMA_V1_DATASETS[(reference, trait)]
+        path = dataset_paths[spec.dataset_id]
+        entries.append(
+            f"""
+[[datasets]]
+dataset_id = "{spec.dataset_id}"
+reference = "{reference}"
+trait = "{trait}"
+member_filename = "{spec.member_filename}"
+member_sha256 = "{compute_sha256(path)}"
+row_count = {count_data_rows(path)}
+"""
+        )
+    manifest_path.write_text(
+        """
+schema_version = 1
+
+[dryad]
+doi = "10.5061/dryad.8w9ghx3xv"
+dataset_id = 149675
+version_id = 356599
+version_number = 6
+publication_doi = "10.1126/science.ads2871"
+
+[archive]
+filename = "adzuki_GWAS_data.zip"
+size_bytes = 1
+sha256 = "{archive_sha}"
+
+[pvalue_columns]
+p_wald = "Wald test p-value"
+pval = "Likelihood ratio test (LRT) p-value"
+p_score = "Score test p-value"
+primary = "pval"
+""".format(archive_sha="a" * 64)
+        + "".join(entries),
         encoding="utf-8",
     )
     return manifest_path
