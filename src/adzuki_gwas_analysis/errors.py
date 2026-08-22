@@ -163,6 +163,28 @@ class EmptyRegionError(GwasContractError):
         )
 
 
+class LoadedPvalueCountMismatchError(GwasContractError):
+    """The number of primary p-values loaded for diagnostics does not match validation's count.
+
+    Raised by :func:`adzuki_gwas_analysis.analysis.pipeline.run_diagnostics` as a
+    data-integrity guard: it is not expected to trigger on a file that
+    :func:`~adzuki_gwas_analysis.validate.validate_dataset` has just approved. If it
+    does, the file changed between validation and loading, or a loader bug exists --
+    either way, ``manifest.toml``'s declared ``row_count`` must never be substituted
+    for the actually-loaded count without this check.
+    """
+
+    def __init__(self, *, dataset_id: str, validated_row_count: int, loaded_count: int) -> None:
+        self.dataset_id = dataset_id
+        self.validated_row_count = validated_row_count
+        self.loaded_count = loaded_count
+        super().__init__(
+            f"[dataset={dataset_id}] loaded {loaded_count} primary p-value(s) but "
+            f"validation counted {validated_row_count} row(s); refusing to compute "
+            f"diagnostics against a mismatched count"
+        )
+
+
 class DuplicateVariantError(GwasContractError):
     """The same (chr, pos, allele0, allele1) key appears in more than one row."""
 
