@@ -408,8 +408,11 @@ performance benchmark and say nothing about other hardware.
 `adzuki-gwas-analyze batch`: Manhattan + QQ + Bonferroni/BH-FDR/lambda_GC diagnostics for
 **every** dataset declared in `manifest.toml`, in that file's own order, in one command.
 This is the standard, auditable artifact set this repository produces per public GWAS
-dataset -- a candidate input for future work (e.g. candidate-SNP extraction, flanking-SNP
-reporting, or customer-facing summaries), **not** an implementation of any of that here.
+dataset. Candidate-SNP extraction on top of it is implemented (opt-in via
+`--clustering-distance`; see
+[Candidate SNP Extraction](#candidate-snp-extraction-association-peaks-and-downstream-validation-priority)
+below); flanking-SNP reporting and customer-facing summaries remain future work, **not**
+implemented here.
 
 ```bash
 BATCH_OUTPUT_DIR="$(mktemp -d)"
@@ -503,6 +506,155 @@ MPLBACKEND=Agg uv run adzuki-gwas-analyze batch --output-dir "$SMOKE_OUTPUT_DIR"
 Never point `--output-dir` at `plots/` or `results/` directly. Any wall-time/peak-RSS
 figures recorded for a `batch` run are that one run's reference values on that one
 machine, not a performance guarantee or SLA for any other environment.
+
+---
+
+## Candidate SNP Extraction (association peaks and downstream validation priority)
+
+[Issue #10](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/10) adds
+`adzuki-gwas-analyze candidates`: it clusters one dataset's own Bonferroni-or-BH-significant
+variants (the same population `diagnostics`/`batch` write to `significant_variants.tsv`)
+into physical-distance "signals" and produces a deterministic, auditable priority ordering
+for which candidates a breeder should look at first. This is a **post-hoc consumer of
+already-corrected summary statistics -- not a new statistical test, not linkage-disequilibrium
+(LD) analysis, and not GWAS re-analysis.**
+
+```bash
+CANDIDATES_OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze candidates \
+    --output-dir "$CANDIDATES_OUTPUT_DIR" \
+    --clustering-distance 50000
+find "$CANDIDATES_OUTPUT_DIR" -maxdepth 1 -type f -print
+```
+
+`candidates` is self-sufficient like `diagnostics`: it validates and loads its dataset
+exactly once, computes the same Bonferroni/BH/lambda_GC diagnostics, and writes 5 files --
+`statistical_diagnostics.tsv`, `significant_variants.tsv`, `association_peaks.tsv`,
+`candidate_snps.tsv`, and `candidate_ranking.tsv` -- always consistent with the same
+invocation's own `--alpha`/`--fdr-level`, never a stale file read back from a previous,
+possibly differently-parameterized `diagnostics` run.
+
+`adzuki-gwas-analyze batch --clustering-distance N` additively writes the same 3 candidate
+files into every one of the 6 dataset directories (43 files total instead of 25).
+**Omitting `--clustering-distance` from `batch` leaves its original 25-file,
+`schema_version=1` output completely unchanged** -- candidate extraction is opt-in and does
+not alter any existing subcommand's default behavior.
+
+### Scientific scope -- read this before interpreting any output
+
+This repository has no individual-level genotype data, so **no linkage disequilibrium can
+be computed here**. Given that constraint:
+
+- A "signal" is a **physical-distance cluster only** -- adjacent significant variants on
+  the same chromosome, in the same dataset, within `--clustering-distance` base pairs of
+  some other already-clustered variant in the same signal (a chained/interval merge, not
+  merely within that distance of the signal's first variant). It is **not** an LD block and
+  **not** an independently defined QTL interval.
+- A signal's **lead variant** is whichever variant this repository's own deterministic
+  tie-break rule (below) selects first. It is **not** asserted to be the causal variant, and
+  no other variant in the same signal is asserted to be merely a proxy for it.
+- `priority_tier`/`priority_reasons` describe **downstream validation priority** --
+  which candidates to look at first -- built only from already-computed, already-explained
+  quantities (this dataset's own Bonferroni/BH significance flags). This is **not** a
+  biological-importance ranking, **not** a probability of being a true positive, and
+  **not** a validated or experimentally confirmed breeding marker.
+- `dataset_id`/`reference`/`trait` are carried on every output row. A signal never spans
+  more than one chromosome or more than one dataset, and Miyagi/Shumari coordinates are
+  never combined, compared, or jointly clustered -- exactly as for `diagnostics`/`batch`
+  above.
+
+### `--clustering-distance` has no default
+
+There is no scientifically justified default clustering window anywhere in this
+repository. The existing `config/*_regions.toml` windows
+([Post-hoc visualization regions](#post-hoc-visualization-regions) above) are human-picked,
+post-hoc visualization windows chosen by eye from a Manhattan plot -- not an LD or
+QTL-interval estimate -- and this repository has no individual-level genotypes from which
+an LD-based window could be derived. `--clustering-distance` is therefore **required on
+both `candidates` and, when opted into, `batch`**, and this repository never silently
+assumes a value. Any value used in this README's examples (e.g. `50000`) is illustrative
+only, not a recommendation.
+
+### Clustering rule
+
+Within one dataset's significant-variant population, grouped by chromosome (in natural
+numeric order -- `Chr2` before `Chr10` -- never lexicographic order) and sorted by
+position: a new signal starts whenever the gap between a variant's position and the running
+maximum position of the currently open signal exceeds `--clustering-distance`. This is a
+**chained merge** -- a run of variants each within the distance of some other
+already-clustered neighbor can span more than `--clustering-distance` end-to-end -- recorded
+verbatim in every `association_peaks.tsv` row's `clustering_method` column so the file is
+self-describing without cross-referencing this section.
+
+### Lead variant and its tie-break
+
+The lead variant of a signal is chosen by, in order: (1) smallest primary `pval`; (2) on a
+tie, the larger-magnitude `beta` (a real, always-finite effect-size estimate schema v1
+already guarantees for every row -- see the effect-size note above); (3) on a further tie,
+the smallest `pos`; (4) on a full tie (e.g. two multi-allelic records at the same position
+with identical `pval` and `|beta|`), the row that appeared first in the source
+`.assoc.txt` file. This deliberately differs from the pre-existing
+[regional top-variant selection](#regional-plots) (`select_top_variant`), which breaks ties
+purely by first-occurrence file order with no candidate-prioritization claim attached; a
+signal's lead variant here is presented as the headline candidate for that signal, so an
+effect-size-based tie-break is used instead.
+
+### Priority tier and reasons
+
+`priority_tier` is `1` for Bonferroni-significant candidates and `2` for candidates
+significant under Benjamini-Hochberg FDR only -- derived purely from the two boolean flags
+`diagnostics` already computes, with no additional weighting, scoring formula, or hidden
+parameter. `candidate_rank` orders the whole dataset's candidate population by
+`priority_tier` first, then the same tie-break used for lead-variant selection.
+`priority_reasons` is a semicolon-joined, fully explainable list (e.g.
+`bonferroni_significant;lead_variant_of_signal;member_of_multi_variant_signal`) --
+never a single opaque score presented as if it were a probability of biological
+importance.
+
+### Output structure
+
+```text
+<output-dir>/
+├── statistical_diagnostics.tsv
+├── significant_variants.tsv
+├── association_peaks.tsv     (1 row per signal)
+├── candidate_snps.tsv        (1 row per significant variant, genome-ordered)
+└── candidate_ranking.tsv     (1 row per significant variant, priority-ordered)
+```
+
+`association_peaks.tsv` columns: `schema_version`, `dataset_id`, `reference`, `trait`,
+`signal_id`, `chromosome`, `start`, `end`, `n_significant_variants`, `lead_pos`,
+`lead_allele1`, `lead_allele0`, `lead_pval`, `lead_pval_bonferroni`, `lead_pval_bh`,
+`clustering_method`, `clustering_distance`.
+
+`candidate_snps.tsv` columns: `schema_version`, `dataset_id`, `reference`, `trait`,
+`signal_id`, `chr`, `pos`, `allele1`, `allele0`, `af`, `beta`, `pval`, `pval_bonferroni`,
+`pval_bh`, `bonferroni_significant`, `bh_significant`, `is_lead_variant`.
+
+`candidate_ranking.tsv` columns: `schema_version`, `dataset_id`, `reference`, `trait`,
+`signal_id`, `chr`, `pos`, `allele1`, `allele0`, `candidate_rank`, `priority_tier`,
+`priority_reasons`.
+
+All 3 files are always produced, header-only with zero rows (never an omitted file) when a
+dataset has zero significant variants -- matching `significant_variants.tsv`'s existing
+convention.
+
+### `batch`'s opt-in schema
+
+`run_batch(..., clustering_distance=None)` (the default) produces exactly the same 25-file
+tree and `batch_summary.tsv` `schema_version=1` this repository has always produced.
+Supplying `clustering_distance` bumps `batch_summary.tsv` to `schema_version=2`, which adds
+`clustering_distance`, `n_signals`, `n_candidates`, `association_peaks_path`,
+`candidate_snps_path`, and `candidate_ranking_path` columns -- computed and reported
+independently per dataset, never as a shared 6-dataset ranking population.
+
+### What is explicitly out of scope here
+
+Reference-genome coordinate/sequence-asset contracts, flanking-sequence and
+neighboring-variant extraction, ARMS marker candidate and primer design, and
+customer-facing report generation are separate, already-tracked follow-up issues (see
+[Related Repositories](#related-repositories) and this repository's issue tracker) --
+**none of them are implemented by this section.**
 
 ---
 

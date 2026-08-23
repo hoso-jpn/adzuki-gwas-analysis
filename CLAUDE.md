@@ -47,6 +47,16 @@ git diff --check
   が「既にload済みのDataFrameから計算する」内部APIを提供する）。6件のDataFrameや
   adjusted p-value配列を同時保持しない。出力はstaging directoryへ全25ファイルを作った後
   `--output-dir`へ一括publishし、途中失敗時はstagingを削除して`--output-dir`を変更しない。
+- `analysis/candidates.py`（Issue #10）は`significant_variants.tsv`と同じ、既にload済みの
+  有意variant集合をインメモリで消費するpure関数のみ。raw fileの再読込・再検証は行わない。
+  `clustering_distance`（bp）はこのリポジトリ内にLDやQTL区間の推定根拠が無いため必須引数で
+  default値を持たない（`candidates` subcommandは required、`batch --clustering-distance`は
+  未指定なら候補抽出自体をskipするoptional拡張で、指定しない限りbatchの既存25ファイル出力・
+  `batch_summary.tsv`の`schema_version=1`は完全に不変）。物理距離クラスタは"signal"と呼び、
+  LD blockやQTL区間と表現しない。lead variantをcausal variantと表現しない。
+  `priority_tier`/`priority_reasons`はBonferroni/BH significance flagのみから決まる
+  downstream validation priorityであり、生物学的重要度ランキングや検証済みマーカーではない。
+  6データセット・Miyagi/Shumariを跨いだ候補の統合・共通rankingは行わない。
 
 ## データ
 
