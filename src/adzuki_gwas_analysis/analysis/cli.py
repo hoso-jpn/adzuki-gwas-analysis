@@ -11,6 +11,8 @@ Usage::
     adzuki-gwas-analyze all --output-dir out/
     adzuki-gwas-analyze diagnostics --output-dir out/
     adzuki-gwas-analyze batch --output-dir out/
+    adzuki-gwas-analyze candidates --output-dir out/ --clustering-distance 50000
+    adzuki-gwas-analyze batch --output-dir out/ --clustering-distance 50000
 
 Every subcommand validates its dataset against the schema v1 manifest
 (:mod:`adzuki_gwas_analysis.validate`) before producing any output, and exits
@@ -39,6 +41,25 @@ published to ``--output-dir`` only after every dataset succeeds -- ``--output-di
 must not already exist as a non-empty directory. ``batch`` does not render regional
 plots or a top-variant-by-region TSV (both specific to ``miyagi_water_permeability``'s
 post-hoc regions) and does not change ``all``'s own output.
+
+``candidates`` (see :mod:`adzuki_gwas_analysis.analysis.candidates`) clusters one dataset's
+own Bonferroni-or-BH-significant variants (the same population ``diagnostics`` writes to
+``significant_variants.tsv``) into physical-distance "signals" and writes
+``association_peaks.tsv``/``candidate_snps.tsv``/``candidate_ranking.tsv`` alongside its own
+``statistical_diagnostics.tsv``/``significant_variants.tsv`` (5 files total; it is
+self-sufficient and does not read a previous ``diagnostics`` run's output back from disk).
+``--clustering-distance`` (base pairs) is **required and has no default anywhere in this
+package** -- there is no LD or independently-defined-QTL estimate in this repository from
+which a default window could be justified, so it must always be chosen and stated
+explicitly. A physical-distance cluster is not an LD block or a QTL interval, a cluster's
+lead variant is not asserted to be causal, and ``priority_tier``/``priority_reasons``
+describe downstream validation priority only -- never a biological-importance ranking or a
+validated breeding marker. ``batch --clustering-distance N`` additively produces the same 3
+files inside every one of the 6 dataset directories (43 files total) when supplied; omitting
+it (the default) leaves ``batch``'s original 25-file, 4-files-per-dataset output completely
+unchanged. Candidates are always clustered and ranked per dataset -- the 6 datasets' (or,
+for ``candidates``, one dataset's) significant variants are never pooled into one shared
+ranking population, and Miyagi/Shumari coordinates are never combined.
 """
 
 from __future__ import annotations
@@ -53,6 +74,7 @@ from adzuki_gwas_analysis.analysis.pipeline import (
     DEFAULT_FDR_LEVEL,
     DEFAULT_THRESHOLD,
     run_all,
+    run_candidates,
     run_diagnostics,
     run_manhattan,
     run_qq,
@@ -164,6 +186,50 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Benjamini-Hochberg FDR level (not the legacy --threshold)",
     )
 
+    candidates = subparsers.add_parser(
+        "candidates",
+        help=(
+            "Cluster one dataset's significant variants into physical-distance signals "
+            "and rank them for downstream validation priority"
+        ),
+    )
+    candidates.add_argument(
+        "--manifest", type=Path, default=DEFAULT_MANIFEST, help="Path to manifest.toml"
+    )
+    candidates.add_argument(
+        "--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Directory with .assoc.txt files"
+    )
+    candidates.add_argument(
+        "--dataset-id", default=DEFAULT_DATASET_ID, help="Manifest dataset_id to analyze"
+    )
+    candidates.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Output directory (required, same convention as diagnostics/batch)",
+    )
+    candidates.add_argument(
+        "--alpha",
+        type=float,
+        default=DEFAULT_ALPHA,
+        help="Bonferroni family-wise alpha (not the legacy --threshold)",
+    )
+    candidates.add_argument(
+        "--fdr-level",
+        type=float,
+        default=DEFAULT_FDR_LEVEL,
+        help="Benjamini-Hochberg FDR level (not the legacy --threshold)",
+    )
+    candidates.add_argument(
+        "--clustering-distance",
+        type=int,
+        required=True,
+        help=(
+            "Physical-distance clustering window in base pairs (required -- no default "
+            "exists anywhere in this package; not an LD or QTL-interval estimate)"
+        ),
+    )
+
     batch = subparsers.add_parser(
         "batch",
         help=(
@@ -206,6 +272,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Legacy visualization threshold line for each dataset's Manhattan/QQ plots "
             "(not a Bonferroni-corrected or genome-wide-significance level)"
+        ),
+    )
+    batch.add_argument(
+        "--clustering-distance",
+        type=int,
+        default=None,
+        help=(
+            "Optional physical-distance clustering window in base pairs. Omitted by "
+            "default -- batch's original 25-file output is unchanged. When supplied, "
+            "adds association_peaks.tsv/candidate_snps.tsv/candidate_ranking.tsv to every "
+            "dataset directory, clustered and ranked independently per dataset. No "
+            "default value exists anywhere in this package; not an LD or QTL-interval "
+            "estimate."
         ),
     )
 
@@ -322,6 +401,30 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Saved: {diagnostics_outcome.summary_path}")
             print(f"Saved: {diagnostics_outcome.significant_variants_path}")
 
+        elif args.command == "candidates":
+            candidates_outcome = run_candidates(
+                manifest_path=args.manifest,
+                data_dir=args.data_dir,
+                dataset_id=args.dataset_id,
+                output_dir=args.output_dir,
+                clustering_distance=args.clustering_distance,
+                alpha=args.alpha,
+                fdr_level=args.fdr_level,
+            )
+            candidates_result = candidates_outcome.candidates_result
+            print(
+                f"dataset_id={args.dataset_id} "
+                f"clustering_distance={args.clustering_distance}bp "
+                f"n_signals={candidates_result.n_signals} "
+                f"n_candidates={candidates_result.n_candidates} "
+                f"(physical-distance clusters, not LD blocks or QTL intervals)"
+            )
+            print(f"Saved: {candidates_outcome.summary_path}")
+            print(f"Saved: {candidates_outcome.significant_variants_path}")
+            print(f"Saved: {candidates_outcome.association_peaks_path}")
+            print(f"Saved: {candidates_outcome.candidate_snps_path}")
+            print(f"Saved: {candidates_outcome.candidate_ranking_path}")
+
         elif args.command == "batch":
             batch_outcome = run_batch(
                 manifest_path=args.manifest,
@@ -330,14 +433,21 @@ def main(argv: list[str] | None = None) -> int:
                 alpha=args.alpha,
                 fdr_level=args.fdr_level,
                 threshold=args.threshold,
+                clustering_distance=args.clustering_distance,
             )
             for dataset_result in batch_outcome.datasets:
-                print(
+                line = (
                     f"{dataset_result.dataset_id}: n_tests={dataset_result.n_tests} "
                     f"bonferroni_discoveries={dataset_result.bonferroni_discoveries} "
                     f"bh_discoveries={dataset_result.bh_discoveries} "
                     f"lambda_gc={dataset_result.lambda_gc:.6g}"
                 )
+                if dataset_result.n_signals is not None:
+                    line += (
+                        f" n_signals={dataset_result.n_signals} "
+                        f"n_candidates={dataset_result.n_candidates}"
+                    )
+                print(line)
             print(
                 f"Total n_tests across {len(batch_outcome.datasets)} datasets: "
                 f"{batch_outcome.total_n_tests} (not a shared multiple-testing family)"
