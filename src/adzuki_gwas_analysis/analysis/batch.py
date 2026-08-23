@@ -53,6 +53,7 @@ from adzuki_gwas_analysis.analysis.diagnostics import (
     format_family_scope,
 )
 from adzuki_gwas_analysis.analysis.loader import load_analysis_frame
+from adzuki_gwas_analysis.analysis.output_safety import check_output_dir_is_safe
 from adzuki_gwas_analysis.analysis.pipeline import (
     DEFAULT_ALPHA,
     DEFAULT_FDR_LEVEL,
@@ -65,7 +66,6 @@ from adzuki_gwas_analysis.analysis.pipeline import (
 )
 from adzuki_gwas_analysis.analysis.plotting import plot_manhattan, plot_qq
 from adzuki_gwas_analysis.analysis.qq import compute_qq_points
-from adzuki_gwas_analysis.errors import BatchOutputDirectoryUnsafeError
 from adzuki_gwas_analysis.manifest import DatasetEntry, Manifest, load_manifest
 
 #: batch_summary.tsv's column set with no candidate-extraction columns -- produced whenever
@@ -355,34 +355,6 @@ def build_batch_summary_table(
     return pd.DataFrame(rows)
 
 
-def _check_output_dir_is_safe(output_dir: Path) -> None:
-    """Fail fast unless ``output_dir`` is a plain, empty (or not-yet-existing) directory.
-
-    Never silently reused, merged into, or replaced: a batch run's 25 files are published
-    as one all-or-nothing unit, so anything already there -- or anything this check cannot
-    positively confirm is an ordinary real directory -- is rejected before any dataset is
-    touched.
-    """
-    if output_dir.is_symlink():
-        raise BatchOutputDirectoryUnsafeError(
-            output_dir=str(output_dir), reason="path is a symlink, not a plain directory"
-        )
-    if output_dir.exists():
-        if not output_dir.is_dir():
-            raise BatchOutputDirectoryUnsafeError(
-                output_dir=str(output_dir), reason="path exists and is not a directory"
-            )
-        if any(output_dir.iterdir()):
-            raise BatchOutputDirectoryUnsafeError(
-                output_dir=str(output_dir),
-                reason=(
-                    "directory already exists and is not empty -- batch output is "
-                    "published as one all-or-nothing unit and never merges into an "
-                    "existing directory"
-                ),
-            )
-
-
 def run_batch(
     *,
     manifest_path: Path,
@@ -420,7 +392,7 @@ def run_batch(
         validate_clustering_distance(clustering_distance)
 
     output_dir = Path(output_dir)
-    _check_output_dir_is_safe(output_dir)
+    check_output_dir_is_safe(output_dir)
     output_dir.parent.mkdir(parents=True, exist_ok=True)
 
     manifest = load_manifest(manifest_path)
