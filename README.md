@@ -651,10 +651,132 @@ independently per dataset, never as a shared 6-dataset ranking population.
 ### What is explicitly out of scope here
 
 Reference-genome coordinate/sequence-asset contracts, flanking-sequence and
-neighboring-variant extraction, ARMS marker candidate and primer design, and
-customer-facing report generation are separate, already-tracked follow-up issues (see
-[Related Repositories](#related-repositories) and this repository's issue tracker) --
-**none of them are implemented by this section.**
+neighboring-variant extraction, and ARMS marker candidate and primer design are separate,
+already-tracked follow-up issues (see [Related Repositories](#related-repositories) and
+this repository's issue tracker) -- **none of them are implemented by this section.**
+Customer-facing report generation on top of this section's output is implemented; see
+[Customer Report and Audit Package](#customer-report-and-audit-package) below.
+
+---
+
+## Customer Report and Audit Package
+
+[Issue #11](https://github.com/hoso-jpn/adzuki-gwas-analysis/issues/11) adds
+`adzuki-gwas-analyze report`: a **consumer**, not a new analysis, that turns an existing
+candidate-enabled `batch` output into a self-contained delivery package -- a short,
+non-specialist executive summary, a detailed technical report, and a machine-readable
+audit trail. It never re-validates `.assoc.txt` files, never recomputes Bonferroni/BH/
+lambda_GC, and never re-clusters candidates; it only reads, cross-checks, and repackages
+artifacts `batch` already produced.
+
+```bash
+BATCH_OUTPUT_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze batch --output-dir "$BATCH_OUTPUT_DIR" --clustering-distance 50000
+
+DELIVERY_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze report --analysis-dir "$BATCH_OUTPUT_DIR" --output-dir "$DELIVERY_DIR"
+find "$DELIVERY_DIR" -maxdepth 2 -print | sort
+```
+
+### Input contract: a candidate-enabled `batch` output only
+
+`--analysis-dir` must be a `batch` output whose `batch_summary.tsv` has
+`schema_version=2` (i.e. that `batch` run was given an explicit `--clustering-distance` --
+see [Candidate SNP Extraction](#candidate-snp-extraction-association-peaks-and-downstream-validation-priority)
+above). A `schema_version=1` (no-candidates) `batch` output is **rejected** with an
+actionable error ("rerun batch with an explicit --clustering-distance") rather than
+silently proceeding with an implicit clustering distance -- `report` never invents a
+parameter on the caller's behalf.
+
+### Output structure
+
+```text
+<output-dir>/
+├── executive_summary.md
+├── analysis_report.md
+├── artifacts/
+│   ├── batch_summary.tsv
+│   └── <dataset_id>/   (the same 7 files batch wrote for that dataset, copied verbatim)
+└── reproducibility/
+    ├── input_checksums.tsv       (dataset_id, reference, trait, source_sha256)
+    ├── software_versions.json    (report-generation environment only -- see below)
+    └── run_manifest.json         (parameters, per-dataset counts, scientific scope,
+                                    and a checksummed inventory of every delivered file)
+```
+
+Only an explicit allowlist of derived filenames is ever copied -- never a recursive
+directory copy, and **never** the raw `.assoc.txt` files. Every reference inside
+`executive_summary.md`/`analysis_report.md` is a path relative to the delivery package
+root, so the package remains self-contained if copied to another machine.
+
+### Cross-artifact consistency, checked before anything is written
+
+Before generating any report content, `report` reads `batch_summary.tsv` and every
+dataset's `statistical_diagnostics.tsv`/`significant_variants.tsv`/
+`association_peaks.tsv`/`candidate_snps.tsv`/`candidate_ranking.tsv`, and confirms they
+still agree with each other: `n_tests`/Bonferroni and BH discovery counts/lambda_GC match
+between `batch_summary.tsv` and that dataset's own diagnostics file; `n_signals`/
+`n_candidates` match the corresponding files' row counts; every file's `dataset_id`/
+`reference`/`trait` match the row it came from; `candidate_rank` is a dense `1..n`
+sequence; and every `signal_id` a candidate references actually exists in
+`association_peaks.tsv`. A dataset with zero candidates (header-only files,
+`n_candidates=0`) is a normal, fully-checked state, not an error. Any disagreement aborts
+report generation with no output written -- `report` never generates a report that would
+silently contradict its own source data.
+
+### `software_versions.json`: what it does and does not claim
+
+The batch/candidate artifacts `report` consumes do not themselves record the software
+versions or Git commit that generated them. `software_versions.json` therefore records
+**only the environment generating the report itself** (`report_generation_environment`:
+Python version, platform, this package's and its runtime dependencies' versions, and a
+best-effort local Git commit) and sets `analysis_generation_environment` to the literal
+string `"unavailable_from_source_artifacts"` -- it never substitutes the report-generation
+environment for the unknown analysis-generation one.
+
+### Confidentiality
+
+The delivery package never contains `os.environ`, a hostname (`platform.node()` is never
+called), a username, or an absolute filesystem path. No network access, external
+service, or LLM call happens anywhere in `report` -- every piece of report text is
+generated from fixed, offline string templates.
+
+### Scientific boundary (unchanged from the sections above)
+
+`report` restates, rather than reinterprets, the constraints already established by
+[Statistical Diagnostics](#statistical-diagnostics-bonferroni--bh-fdr--genomic-inflation-factor)
+and [Candidate SNP Extraction](#candidate-snp-extraction-association-peaks-and-downstream-validation-priority):
+this is a post-hoc re-analysis of already-published summary statistics (the GWAS itself
+was not re-run); association signals are physical-distance clusters only, never LD blocks
+or independently established QTL intervals; lead variants and candidates are never
+asserted to be causal or validated breeding markers; `priority_tier` is a downstream
+validation priority, never a biological-importance ranking; and Miyagi/Shumari
+coordinates, or any two datasets' candidates, are never combined into one shared ranking.
+
+### Atomic publication
+
+Same staging-directory-then-`os.replace` transaction pattern as `batch` (the check itself
+is shared, in `analysis/output_safety.py`): the full package is built in a staging
+directory next to `--output-dir` and only published after every step succeeds. Any
+failure -- an invalid `--analysis-dir`, a path-safety violation, a cross-artifact
+inconsistency, or an I/O error partway through -- removes the staging directory and
+leaves `--output-dir` untouched.
+
+### Real-data smoke test: always a scratch directory
+
+```bash
+SMOKE_ANALYSIS_DIR="$(mktemp -d)"
+MPLBACKEND=Agg uv run adzuki-gwas-analyze batch \
+    --output-dir "$SMOKE_ANALYSIS_DIR" --clustering-distance 50000
+
+SMOKE_DELIVERY_DIR="$(mktemp -d)"
+uv run adzuki-gwas-analyze report \
+    --analysis-dir "$SMOKE_ANALYSIS_DIR" --output-dir "$SMOKE_DELIVERY_DIR"
+```
+
+As with `batch`, `50000` above is this smoke test's own illustrative parameter, not a
+recommended default -- there is none in this repository. Never point either
+`--output-dir` at `plots/` or `results/` directly.
 
 ---
 

@@ -57,6 +57,20 @@ git diff --check
   `priority_tier`/`priority_reasons`はBonferroni/BH significance flagのみから決まる
   downstream validation priorityであり、生物学的重要度ランキングや検証済みマーカーではない。
   6データセット・Miyagi/Shumariを跨いだ候補の統合・共通rankingは行わない。
+- `analysis/report.py`（Issue #11）は`batch`成果物のconsumerであり、GWAS・candidate rankingの
+  再計算は一切行わない。`--analysis-dir`は`batch_summary.tsv`の`schema_version==2`
+  （candidate-enabled batch）のみを受け付け、schema_version=1は
+  `ReportRequiresCandidateEnabledBatchError`で明示的にfailする（暗黙のclustering distanceを
+  設定しない）。`analysis/report_validation.py`が唯一のゲートで、全artifactを読み取り専用で
+  cross-checkしてからでないと`report_content.py`（pure関数、ファイルI/Oなし）が呼ばれない。
+  delivery packageへコピーするのは明示allowlist上のderived artifactsのみで、raw
+  `.assoc.txt`やディレクトリ丸ごとcopyは行わない。`software_versions.json`の
+  `analysis_generation_environment`は常に`"unavailable_from_source_artifacts"`固定文字列
+  （batch/candidates成果物自体がgeneration-time software versionを記録していないため、
+  report生成環境をanalysis生成環境と偽らない）。`platform.node()`（hostname）・
+  `os.environ`のdump・絶対パスをoutputへ含めない。生成物に生成時刻を含めない
+  （同じ入力から常に同一内容を再現できる設計）。output-dirの安全性チェックは
+  `analysis/output_safety.py`で`batch`と共有。
 
 ## データ
 
