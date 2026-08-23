@@ -155,9 +155,9 @@ class BatchCommandTests(BatchCliTestCase):
 
 
 class ExistingSevenSubcommandsUnaffectedTests(BatchCliTestCase):
-    """Pins that adding `batch` (and later `candidates`) did not change any prior subcommand."""
+    """Pins that adding `batch`/`candidates`/`report` did not change any prior subcommand."""
 
-    def test_all_nine_subcommands_are_registered(self) -> None:
+    def test_all_ten_subcommands_are_registered(self) -> None:
         module = importlib.import_module("adzuki_gwas_analysis.analysis.cli")
         parser = module._build_parser()
         subparsers_action = next(
@@ -177,6 +177,7 @@ class ExistingSevenSubcommandsUnaffectedTests(BatchCliTestCase):
                 "diagnostics",
                 "batch",
                 "candidates",
+                "report",
             },
         )
 
