@@ -31,6 +31,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from adzuki_gwas_analysis.analysis.candidates import CandidatesResult, build_candidates_result
 from adzuki_gwas_analysis.analysis.chromosomes import compute_manhattan_coordinates
 from adzuki_gwas_analysis.analysis.diagnostics import (
     DiagnosticsResult,
@@ -516,4 +517,86 @@ def run_diagnostics(
         result=result,
         summary_path=summary_path,
         significant_variants_path=significant_variants_path,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CandidatesOutcome:
+    """Every output produced by a single ``candidates`` run."""
+
+    diagnostics_result: DiagnosticsResult
+    candidates_result: CandidatesResult
+    summary_path: Path
+    significant_variants_path: Path
+    association_peaks_path: Path
+    candidate_snps_path: Path
+    candidate_ranking_path: Path
+
+
+def run_candidates(
+    *,
+    manifest_path: Path,
+    data_dir: Path,
+    dataset_id: str,
+    output_dir: Path,
+    clustering_distance: int,
+    alpha: float = DEFAULT_ALPHA,
+    fdr_level: float = DEFAULT_FDR_LEVEL,
+) -> CandidatesOutcome:
+    """Validate, load once, compute diagnostics, cluster, and write all 5 output TSVs.
+
+    Self-sufficient like :func:`run_diagnostics`: this does not read a previous
+    ``diagnostics`` run's output back from disk. It validates ``dataset_id`` once, loads its
+    analysis DataFrame once, computes the same Bonferroni/BH/lambda_GC diagnostics and the
+    same significant-variant population :func:`run_diagnostics` would, and then clusters that
+    in-memory population (via
+    :func:`~adzuki_gwas_analysis.analysis.candidates.build_candidates_result`) into
+    ``association_peaks.tsv``/``candidate_snps.tsv``/``candidate_ranking.tsv`` -- so a
+    ``candidates`` run's ``statistical_diagnostics.tsv``/``significant_variants.tsv`` are
+    always consistent with the ``alpha``/``fdr_level`` that same invocation used, never a
+    stale file from an earlier, possibly differently-parameterized ``diagnostics`` run.
+
+    ``clustering_distance`` has no default anywhere in this repository (see
+    :mod:`adzuki_gwas_analysis.analysis.candidates`'s module docstring) and must always be
+    supplied explicitly.
+    """
+    info = ensure_validated_with_result(
+        manifest_path=manifest_path, data_dir=data_dir, dataset_id=dataset_id
+    )
+    variant_df = load_analysis_frame(data_dir / info.entry.member_filename)
+    diagnostics_result = compute_diagnostics_result(
+        info, variant_df, alpha=alpha, fdr_level=fdr_level
+    )
+
+    summary_table = build_summary_table(diagnostics_result)
+    significant_table = build_significant_variants_table(variant_df, diagnostics_result)
+    candidates_result = build_candidates_result(
+        significant_table,
+        dataset_id=info.entry.dataset_id,
+        reference=info.entry.reference,
+        trait=info.entry.trait,
+        clustering_distance=clustering_distance,
+    )
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = output_dir / "statistical_diagnostics.tsv"
+    significant_variants_path = output_dir / "significant_variants.tsv"
+    association_peaks_path = output_dir / "association_peaks.tsv"
+    candidate_snps_path = output_dir / "candidate_snps.tsv"
+    candidate_ranking_path = output_dir / "candidate_ranking.tsv"
+    atomic_write_tsv(summary_table, summary_path)
+    atomic_write_tsv(significant_table, significant_variants_path)
+    atomic_write_tsv(candidates_result.association_peaks, association_peaks_path)
+    atomic_write_tsv(candidates_result.candidate_snps, candidate_snps_path)
+    atomic_write_tsv(candidates_result.candidate_ranking, candidate_ranking_path)
+
+    return CandidatesOutcome(
+        diagnostics_result=diagnostics_result,
+        candidates_result=candidates_result,
+        summary_path=summary_path,
+        significant_variants_path=significant_variants_path,
+        association_peaks_path=association_peaks_path,
+        candidate_snps_path=candidate_snps_path,
+        candidate_ranking_path=candidate_ranking_path,
     )
