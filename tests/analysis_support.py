@@ -212,6 +212,89 @@ primary = "pval"
     return manifest_path
 
 
+#: Row template used by build_candidate_enabled_batch_fixture below: chr, pos, and pval are
+#: filled in per row; every other column is a fixed, schema-v1-valid placeholder value.
+_CANDIDATE_FIXTURE_ROW_TEMPLATE = (
+    "{chrom}\t.\t{pos}\t0\tA\tG\t0.30\t0.05\t0.01\t70.0\t30.0\t28.0\t1e-3\t{pval}\t1e-3"
+)
+
+#: (chrom, pos, pval) rows per dataset_id, deliberately varied so report tests exercise:
+#: multiple references, multiple traits, a dataset with zero candidates
+#: (miyagi_mottled_black_seedcoat), a single-signal dataset, and a multi-signal dataset.
+_CANDIDATE_FIXTURE_ROWS_BY_DATASET_ID: dict[str, list[tuple[str, int, str]]] = {
+    "miyagi_water_permeability": [
+        ("Chr01", 1_000_000, "1e-9"),
+        ("Chr01", 1_000_200, "2e-9"),
+        ("Chr01", 5_000_000, "9e-1"),
+    ],
+    "miyagi_red_seedcoat": [
+        ("Chr01", 1_000_000, "1e-9"),
+        ("Chr02", 2_000_000, "2e-9"),
+        ("Chr02", 9_000_000, "9e-1"),
+    ],
+    "miyagi_mottled_black_seedcoat": [
+        ("Chr01", 1_000_000, "8e-1"),
+        ("Chr01", 2_000_000, "9e-1"),
+        ("Chr02", 3_000_000, "7e-1"),
+    ],
+    "shumari_water_permeability": [
+        ("Chr01", 1_000_000, "1e-9"),
+        ("Chr01", 4_000_000, "8e-1"),
+        ("Chr02", 5_000_000, "9e-1"),
+    ],
+    "shumari_red_seedcoat": [
+        ("Chr01", 1_000_000, "1e-9"),
+        ("Chr01", 1_000_300, "2e-9"),
+        ("Chr02", 6_000_000, "3e-9"),
+    ],
+    "shumari_mottled_black_seedcoat": [
+        ("Chr01", 1_000_000, "1e-9"),
+        ("Chr02", 2_000_000, "9e-1"),
+        ("Chr02", 3_000_000, "8e-1"),
+    ],
+}
+
+
+def build_candidate_enabled_batch_fixture(
+    tmp_path: Path, *, clustering_distance: int = 1000
+) -> Path:
+    """Build a real, schema-v2 candidate-enabled ``batch`` output for report tests.
+
+    Runs the actual :func:`adzuki_gwas_analysis.analysis.batch.run_batch` against small
+    synthetic fixtures rather than hand-authoring a ``batch_summary.tsv`` and per-dataset
+    TSVs by hand -- this guarantees the fixture always matches the real schema/consistency
+    contract :mod:`adzuki_gwas_analysis.analysis.report_validation` checks, with no risk of
+    drifting from it. ``miyagi_mottled_black_seedcoat`` deliberately has zero candidates
+    (every p-value is large), so report tests exercise that state for real rather than by
+    construction. Returns the published ``analysis_dir`` (a fresh subdirectory of
+    ``tmp_path``).
+    """
+    from adzuki_gwas_analysis.analysis.batch import run_batch
+
+    data_dir = tmp_path / "fixture_data"
+    data_dir.mkdir()
+    manifest_path = tmp_path / "fixture_manifest.toml"
+    analysis_dir = tmp_path / "fixture_analysis_dir"
+
+    rows_by_dataset_id = {
+        dataset_id: [
+            _CANDIDATE_FIXTURE_ROW_TEMPLATE.format(chrom=chrom, pos=pos, pval=pval)
+            for chrom, pos, pval in rows
+        ]
+        for dataset_id, rows in _CANDIDATE_FIXTURE_ROWS_BY_DATASET_ID.items()
+    }
+    dataset_paths = write_six_dataset_files(data_dir, rows_by_dataset_id)
+    write_full_manifest(manifest_path, dataset_paths)
+
+    run_batch(
+        manifest_path=manifest_path,
+        data_dir=data_dir,
+        output_dir=analysis_dir,
+        clustering_distance=clustering_distance,
+    )
+    return analysis_dir
+
+
 def write_region_config(config_path: Path, regions: list[dict[str, object]]) -> Path:
     """Write a region config TOML for ``miyagi_water_permeability`` with ``regions``."""
     lines = [

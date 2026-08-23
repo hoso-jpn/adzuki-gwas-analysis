@@ -13,6 +13,7 @@ Usage::
     adzuki-gwas-analyze batch --output-dir out/
     adzuki-gwas-analyze candidates --output-dir out/ --clustering-distance 50000
     adzuki-gwas-analyze batch --output-dir out/ --clustering-distance 50000
+    adzuki-gwas-analyze report --analysis-dir batch-out/ --output-dir delivery/
 
 Every subcommand validates its dataset against the schema v1 manifest
 (:mod:`adzuki_gwas_analysis.validate`) before producing any output, and exits
@@ -60,6 +61,22 @@ it (the default) leaves ``batch``'s original 25-file, 4-files-per-dataset output
 unchanged. Candidates are always clustered and ranked per dataset -- the 6 datasets' (or,
 for ``candidates``, one dataset's) significant variants are never pooled into one shared
 ranking population, and Miyagi/Shumari coordinates are never combined.
+
+``report`` (see :mod:`adzuki_gwas_analysis.analysis.report`) is a **consumer** of an
+existing ``batch`` output, not a new analysis: it never re-validates ``.assoc.txt`` files,
+never recomputes Bonferroni/BH/lambda_GC, and never re-clusters candidates. ``--analysis-dir``
+must be a **candidate-enabled** ``batch`` output (``batch_summary.tsv`` with
+``schema_version=2``, i.e. that ``batch`` run was given an explicit
+``--clustering-distance``) -- a schema-v1 (no-candidates) ``batch`` output is rejected with
+an actionable error rather than silently re-clustering with an implicit distance. Publishes
+a self-contained delivery package to ``--output-dir``: ``executive_summary.md``,
+``analysis_report.md``, an ``artifacts/`` copy of every dataset's derived files (never the
+raw ``.assoc.txt`` files), and a ``reproducibility/`` folder
+(``input_checksums.tsv``/``software_versions.json``/``run_manifest.json``). Every
+cross-artifact count in the report (n_tests, discoveries, lambda_GC, signal/candidate
+counts) is checked against its source file before anything is written; a mismatch aborts
+with no output produced. No network access or external service is used anywhere in
+``report``.
 """
 
 from __future__ import annotations
@@ -82,6 +99,7 @@ from adzuki_gwas_analysis.analysis.pipeline import (
     run_single_regional,
     run_top_variants,
 )
+from adzuki_gwas_analysis.analysis.report import run_report
 from adzuki_gwas_analysis.errors import GwasContractError
 
 DEFAULT_DATASET_ID = "miyagi_water_permeability"
@@ -288,6 +306,30 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    report = subparsers.add_parser(
+        "report",
+        help=(
+            "Generate a customer-facing report and audit package from an existing "
+            "candidate-enabled batch output (does not re-run any analysis)"
+        ),
+    )
+    report.add_argument(
+        "--analysis-dir",
+        type=Path,
+        required=True,
+        help=(
+            "A candidate-enabled `batch` output directory (batch_summary.tsv with "
+            "schema_version=2, i.e. that batch run used an explicit "
+            "--clustering-distance). A schema-v1 batch output is rejected."
+        ),
+    )
+    report.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Delivery package output directory (required, must not already exist non-empty)",
+    )
+
     return parser
 
 
@@ -455,6 +497,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Saved: {batch_outcome.summary_path}")
             n_datasets = len(batch_outcome.datasets)
             print(f"Saved: {batch_outcome.output_dir} ({n_datasets} dataset directories)")
+
+        elif args.command == "report":
+            report_outcome = run_report(analysis_dir=args.analysis_dir, output_dir=args.output_dir)
+            print(
+                f"datasets={report_outcome.n_datasets} "
+                f"n_signals={report_outcome.n_signals} "
+                f"n_candidates={report_outcome.n_candidates} "
+                f"(simple sums across independent per-dataset counts, not a shared "
+                f"multiple-testing family or a common biological locus count)"
+            )
+            print(f"Saved: {report_outcome.executive_summary_path}")
+            print(f"Saved: {report_outcome.analysis_report_path}")
+            print(f"Saved: {report_outcome.run_manifest_path}")
+            print(f"Saved: {report_outcome.output_dir}")
 
         else:  # pragma: no cover - argparse enforces valid choices
             parser.error(f"unknown command {args.command!r}")

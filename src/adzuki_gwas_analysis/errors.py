@@ -223,3 +223,58 @@ class BatchOutputDirectoryUnsafeError(GwasContractError):
         self.output_dir = output_dir
         self.reason = reason
         super().__init__(f"--output-dir {output_dir!r} is not safe to use: {reason}")
+
+
+class ReportRequiresCandidateEnabledBatchError(GwasContractError):
+    """``report``'s ``--analysis-dir`` is a batch output with no candidate extraction.
+
+    Raised when ``batch_summary.tsv``'s ``schema_version`` is not the candidate-enabled
+    value (2): report generation never silently re-clusters candidates with an implicit
+    ``clustering_distance``, and never treats a schema-v1 (no-candidates) batch output as
+    if it had candidate data. The caller must re-run ``batch`` with an explicit
+    ``--clustering-distance`` first.
+    """
+
+    def __init__(self, *, analysis_dir: str, found_schema_version: object) -> None:
+        self.analysis_dir = analysis_dir
+        self.found_schema_version = found_schema_version
+        super().__init__(
+            f"--analysis-dir {analysis_dir!r} is a batch output with "
+            f"batch_summary.tsv schema_version={found_schema_version!r}, not the "
+            f"candidate-enabled schema_version=2 this report requires: candidate-enabled "
+            f"batch output is required; rerun batch with an explicit --clustering-distance"
+        )
+
+
+class ReportSourcePathUnsafeError(GwasContractError):
+    """An artifact path recorded in ``batch_summary.tsv`` is not safe to read.
+
+    Raised for an absolute path, a ``..``-traversal path, a path whose resolved location
+    escapes ``--analysis-dir``, a symlink, or a path that does not exist as a plain
+    regular file -- before any artifact is copied or any report content is generated.
+    """
+
+    def __init__(self, *, dataset_id: str | None, relative_path: str, reason: str) -> None:
+        self.dataset_id = dataset_id
+        self.relative_path = relative_path
+        self.reason = reason
+        prefix = f"[dataset={dataset_id}] " if dataset_id else ""
+        super().__init__(f"{prefix}artifact path {relative_path!r} is not safe: {reason}")
+
+
+class ReportSourceInconsistentError(GwasContractError):
+    """A cross-artifact consistency check failed while validating ``--analysis-dir``.
+
+    Raised instead of generating a report that would otherwise silently disagree with
+    itself -- e.g. a dataset's ``statistical_diagnostics.tsv`` disagreeing with its
+    ``batch_summary.tsv`` row, a candidate file's row count disagreeing with
+    ``batch_summary.tsv``'s ``n_signals``/``n_candidates``, a non-dense
+    ``candidate_rank`` sequence, or a ``signal_id`` referenced by a candidate that does
+    not appear in ``association_peaks.tsv``. No report file is written when this is
+    raised.
+    """
+
+    def __init__(self, *, dataset_id: str | None, reason: str) -> None:
+        self.dataset_id = dataset_id
+        prefix = f"[dataset={dataset_id}] " if dataset_id else ""
+        super().__init__(f"{prefix}analysis-dir consistency check failed: {reason}")
