@@ -1,5 +1,8 @@
 # adzuki-gwas-analysis
 
+[ARMS計算候補の設計](docs/arms_design.md)は検証済みの候補周辺配列から行う。
+計算候補、実験検証済みマーカー、育種集団で検証済みのパネルを区別する。
+
 [候補周辺配列・近傍変異の抽出](docs/candidate_context.md)は、検証済みreference bundleを使い、
 summaryとcohort VCFの情報源を分けて出力する。
 
