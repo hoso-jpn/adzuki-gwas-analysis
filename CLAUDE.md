@@ -108,8 +108,10 @@ git diff --check
   ない。MiyagiとShumariの座標を比較・結合しない。
 - config/water_permeability_regions.toml の窓は Manhattan plot を目視して事後に選んだ
   post-hoc visualization window。独立に定義されたQTL区間やLD blockであると断定しない。
-- 本リポジトリは公開 summary statistics を可視化・再解析するだけで GWAS を再実行しない。
+- 既存Dryad経路は公開 summary statistics を可視化・再解析するだけで GWAS を再実行しない。
   "re-ran the GWAS" ではなく "re-analyzed / visualized published summary statistics" と書く。
+- `individual_gwas` は許可済み個体データを必要とする別入口。量的形質のnull-REML共分散近似を
+  明示し、GEMMA/EMMAX本体・実コホート検証済みとは記載しない。`docs/individual_gwas.md`参照。
 - Miyagi / Shumari / Longxiaodou 4（姉妹repo adzuki-snp-pipeline）は互換性のない3つの座標系。
   liftover なしで座標を比較・アノテーションしない。
 - liftover・LD解析・kinship補正・genomic-selection学習に必要なデータ・処理を、
