@@ -1,5 +1,8 @@
 # adzuki-gwas-analysis
 
+[候補周辺配列・近傍変異の抽出](docs/candidate_context.md)は、検証済みreference bundleを使い、
+summaryとcohort VCFの情報源を分けて出力する。
+
 参照配列を使う後続処理の入口は[参照ゲノム資産の契約 v1](docs/reference_bundle.md)を参照。
 納品向け解析には[解析生成時の来歴](docs/analysis_provenance.md)の
 `--record-provenance`／`--require-provenance`を使用する。
