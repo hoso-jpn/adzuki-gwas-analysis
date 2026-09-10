@@ -101,6 +101,7 @@ from adzuki_gwas_analysis.analysis.pipeline import (
 )
 from adzuki_gwas_analysis.analysis.report import run_report
 from adzuki_gwas_analysis.errors import GwasContractError
+from adzuki_gwas_analysis.provenance import run_audited_analysis
 
 DEFAULT_DATASET_ID = "miyagi_water_permeability"
 DEFAULT_MANIFEST = Path("manifest.toml")
@@ -306,6 +307,13 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    for producer in (batch, candidates):
+        producer.add_argument(
+            "--record-provenance",
+            action="store_true",
+            help="Atomically record generation environment and artifact checksums",
+        )
+
     report = subparsers.add_parser(
         "report",
         help=(
@@ -330,6 +338,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Delivery package output directory (required, must not already exist non-empty)",
     )
 
+    report.add_argument(
+        "--require-provenance",
+        action="store_true",
+        help="Reject legacy or incomplete generation provenance",
+    )
     return parser
 
 
@@ -339,6 +352,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command in ("batch", "candidates") and args.record_provenance:
+            run_audited_analysis(
+                command=args.command,
+                manifest_path=args.manifest,
+                data_dir=args.data_dir,
+                output_dir=args.output_dir,
+                dataset_id=getattr(args, "dataset_id", None),
+                alpha=args.alpha,
+                fdr_level=args.fdr_level,
+                clustering_distance=args.clustering_distance,
+                threshold=getattr(args, "threshold", DEFAULT_THRESHOLD),
+            )
+            print(f"Saved audited analysis: {args.output_dir}")
+            return 0
         if args.command == "manhattan":
             result = run_manhattan(
                 manifest_path=args.manifest,
@@ -499,7 +526,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Saved: {batch_outcome.output_dir} ({n_datasets} dataset directories)")
 
         elif args.command == "report":
-            report_outcome = run_report(analysis_dir=args.analysis_dir, output_dir=args.output_dir)
+            report_outcome = run_report(
+                analysis_dir=args.analysis_dir,
+                output_dir=args.output_dir,
+                require_provenance=args.require_provenance,
+            )
             print(
                 f"datasets={report_outcome.n_datasets} "
                 f"n_signals={report_outcome.n_signals} "

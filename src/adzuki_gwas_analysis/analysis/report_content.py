@@ -368,9 +368,9 @@ def build_analysis_report_markdown(validated: ValidatedAnalysisDir) -> str:
         "## 10. Reproducibility",
         "",
         "See `reproducibility/input_checksums.tsv` (per-dataset source checksums), "
-        "`reproducibility/software_versions.json` (report-generation environment; "
-        "the environment that generated the underlying batch/candidate artifacts is "
-        "not recorded by those artifacts and is not claimed here), and "
+        "`reproducibility/software_versions.json` (separate report-generation and "
+        "analysis-generation environments; legacy generation metadata is "
+        "explicitly unavailable), and "
         "`reproducibility/run_manifest.json` (full machine-readable audit record: "
         "parameters, per-dataset counts, scientific scope, and a checksummed "
         "artifact inventory).",
@@ -424,16 +424,23 @@ def build_run_manifest(
 
 
 def build_software_versions(
-    *, report_generation_environment: dict[str, object]
+    *,
+    report_generation_environment: dict[str, object],
+    analysis_generation_environment: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Build the ``software_versions.json`` document.
 
-    ``analysis_generation_environment`` is always the literal string
-    :data:`UNAVAILABLE_FROM_SOURCE_ARTIFACTS`: the batch/candidate artifacts this report
-    consumes do not themselves record the software versions or Git commit that produced
-    them, so this function never substitutes the current (report-generation) environment
-    for that unknown, and never guesses.
+    Verified audited bundles supply their original generation environment. Legacy
+    bundles retain UNAVAILABLE_FROM_SOURCE_ARTIFACTS; the current report environment
+    is never substituted for missing analysis-generation metadata.
     """
+    if analysis_generation_environment is not None:
+        return {
+            "schema_version": 2,
+            "report_generation_environment": report_generation_environment,
+            "analysis_generation_environment": analysis_generation_environment,
+            "note": "Analysis environment is inherited from verified generation-time provenance.",
+        }
     return {
         "schema_version": SOFTWARE_VERSIONS_SCHEMA_VERSION,
         "report_generation_environment": report_generation_environment,

@@ -65,9 +65,10 @@ git diff --check
   cross-checkしてからでないと`report_content.py`（pure関数、ファイルI/Oなし）が呼ばれない。
   delivery packageへコピーするのは明示allowlist上のderived artifactsのみで、raw
   `.assoc.txt`やディレクトリ丸ごとcopyは行わない。`software_versions.json`の
-  `analysis_generation_environment`は常に`"unavailable_from_source_artifacts"`固定文字列
-  （batch/candidates成果物自体がgeneration-time software versionを記録していないため、
-  report生成環境をanalysis生成環境と偽らない）。`platform.node()`（hostname）・
+  `analysis_generation_environment`は旧bundleでは`"unavailable_from_source_artifacts"`。
+  `--record-provenance`で生成したbundleはprovenance.pyで検証し元の環境を継承する。
+  納品には`report --require-provenance`を用いる。report環境をanalysis環境と偽らない。
+  `platform.node()`（hostname）・
   `os.environ`のdump・絶対パスをoutputへ含めない。生成物に生成時刻を含めない
   （同じ入力から常に同一内容を再現できる設計）。output-dirの安全性チェックは
   `analysis/output_safety.py`で`batch`と共有。
