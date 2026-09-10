@@ -1,5 +1,9 @@
 # adzuki-gwas-analysis
 
+[ARMS実験結果の取り込みと検証状態](docs/assay_review.md)で、引き渡し、返却結果のQC、
+call rate・一致率、担当者レビュー、設計版と再設計履歴を管理する。
+測定前・合成データの候補は検証済みパネルとして出力しない。
+
 [参照間の候補比較](docs/cross_reference.md)では、確認済みchainとアレル検証を使用する。
 対応資産がない場合は参照内の遺伝子注釈を行い、参照間比較は未評価とする。
 
@@ -58,7 +62,8 @@ causal variant（原因変異）の同定、育種マーカーの検証を主張
 - 顧客提供individual-level genotype/phenotypeによる量的形質GWAS（null-REML共分散近似）
 
 外部chainによる候補点の座標対応と参照内注釈は実装済み。
-chainの自動生成、LD解析、fine-mapping、実験検証は未実装。
+実験結果の受付と検証状態管理も実装済み。chainの自動生成、LD解析、fine-mapping、
+実際のwet-lab検証は含まれない。
 
 ---
 
