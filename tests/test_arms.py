@@ -84,6 +84,9 @@ class ArmsTests(unittest.TestCase):
     def test_reverse_strand_coordinates_and_partial_cohort_coverage(self):
         row = next(read_tsv(self.context / "candidate_context.tsv"))
         row["strand"] = "-"
+        # Mirror the genomic alleles so the same eligible oligos exercise reverse coordinates.
+        row["ref"] = reverse_complement(row["ref"])
+        row["alt"] = reverse_complement(row["alt"])
         settings = PrimerSettings(
             min_length=18,
             max_length=20,
@@ -95,7 +98,7 @@ class ArmsTests(unittest.TestCase):
         )
         designs, _ = design_candidate(
             row,
-            reverse_complement(self.sequence[20:381]),
+            self.sequence[20:381],
             [],
             settings,
             cohort_available=True,
@@ -103,7 +106,7 @@ class ArmsTests(unittest.TestCase):
         )
         self.assertTrue(designs)
         for design in designs:
-            self.assertEqual(design["specific_ref_5to3"][-1], reverse_complement(self.ref))
+            self.assertEqual(design["specific_ref_5to3"][-1], reverse_complement(row["ref"]))
             self.assertEqual(
                 design["specific_end"] - design["common_start"] + 1, design["product_bp"]
             )
