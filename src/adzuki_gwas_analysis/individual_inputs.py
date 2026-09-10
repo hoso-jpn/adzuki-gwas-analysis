@@ -105,7 +105,7 @@ def load_config(path: Path, bundle: ReferenceBundle) -> dict[str, Any]:
 def _unique_rows(
     path: Path, key: str, required: tuple[str, ...], limit: int
 ) -> dict[str, dict[str, str]]:
-    result = {}
+    result: dict[str, dict[str, str]] = {}
     for row in read_tsv(path, required):
         identifier = row[key]
         if not identifier or identifier in result:
