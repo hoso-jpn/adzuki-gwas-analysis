@@ -1,0 +1,20 @@
+schema_version = 1
+
+# Initial screening settings; they are not experimentally calibrated for adzuki.
+[primer]
+min_length = 18
+max_length = 25
+min_product_bp = 75
+max_product_bp = 200
+min_tm_C = 45
+max_tm_C = 70
+target_tm_C = 60
+max_tm_difference_C = 5
+min_gc_fraction = 0.35
+max_gc_fraction = 0.65
+max_homopolymer = 4
+max_self_match = 8
+max_pair_match = 8
+sodium_mM = 50
+strand_concentration_nM = 25
+alternatives = 3
