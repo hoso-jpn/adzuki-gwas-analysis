@@ -2,8 +2,8 @@ name: Test
 on:
   push:
     branches: [ main ]
+  # Also validate dependent PRs whose base is another feature branch.
   pull_request:
-    branches: [ main ]
 jobs:
   test:
     runs-on: ubuntu-latest

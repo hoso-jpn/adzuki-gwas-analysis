@@ -1,6 +1,9 @@
 # Large public GWAS summary statistics and other raw Dryad artifacts
 data/raw/
 data/raw/**
+data/references/
+cases/
+deliveries/
 *.assoc.txt
 
 # Small, deterministic, committed unit-test fixtures are the one
