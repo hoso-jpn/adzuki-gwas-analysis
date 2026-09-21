@@ -1,5 +1,8 @@
 # adzuki-gwas-analysis
 
+[参照間の候補比較](docs/cross_reference.md)では、確認済みchainとアレル検証を使用する。
+対応資産がない場合は参照内の遺伝子注釈を行い、参照間比較は未評価とする。
+
 利用許可のある個体データは[量的形質GWAS v1](docs/individual_gwas.md)で解析できる。
 個体別実行と、以下の計算済みsummaryの再解析を別の入口として区別する。
 
@@ -54,7 +57,8 @@ causal variant（原因変異）の同定、育種マーカーの検証を主張
 - 顧客summary statisticsの正規化・QC・補正・候補抽出
 - 顧客提供individual-level genotype/phenotypeによる量的形質GWAS（null-REML共分散近似）
 
-自動liftover、LD解析、fine-mapping、実験検証は未実装。
+外部chainによる候補点の座標対応と参照内注釈は実装済み。
+chainの自動生成、LD解析、fine-mapping、実験検証は未実装。
 
 ---
 
