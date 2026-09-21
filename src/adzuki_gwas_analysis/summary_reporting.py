@@ -92,9 +92,13 @@ def write_summary_artifacts(
     contig_order: list[str],
     alpha: float,
     fdr_level: float,
+    analysis_origin: str = "customer_summary",
 ) -> dict[str, Any]:
+    if analysis_origin not in ("customer_summary", "individual_gwas"):
+        raise ValueError("unknown analysis origin")
     diagnostics = {
         "schema_version": 1,
+        "analysis_origin": analysis_origin,
         "n_input": len(rows) + len(excluded),
         "n_tests": len(rows),
         "n_excluded": len(excluded),
@@ -117,13 +121,24 @@ def write_summary_artifacts(
     write_tsv(stage / "excluded_rows.tsv", ("source_row", "reason"), excluded)
     plot_summary(rows, contig_order, stage, alpha=alpha)
     unresolved = sum(row["effect_orientation"] == "unresolved_strand" for row in rows)
+    origin_text = (
+        "Individual-level quantitative GWAS was run with a null-REML covariance approximation. "
+        "See model.json for the engine, global kinship, covariates and optimization diagnostics. "
+        "The fitted covariance is reused for each marker; p-values are conditional approximations. "
+        "Global kinship includes the tested markers and can cause proximal contamination. "
+        if analysis_origin == "individual_gwas"
+        else (
+            "The supplied summary statistics were analyzed; "
+            "individual-level GWAS was not run here. "
+        )
+    )
     (stage / "analysis_report.md").write_text(
-        "# Customer summary-statistics report\n\n"
+        f"# {analysis_origin.replace('_', ' ').title()} report\n\n"
         f"Rows analyzed: {len(rows)}; rows excluded: {len(excluded)}; "
         f"candidates: {len(candidates)}.\n\n"
         f"Effect orientation unresolved: {unresolved}. Favorable alleles are not inferred.\n\n"
-        "The supplied summary statistics were analyzed; individual-level GWAS was not run here. "
-        "One dataset/cohort/trait/analysis/test defines the correction family. "
+        + origin_text
+        + "One dataset/cohort/trait/analysis/test defines the correction family. "
         "Bonferroni controls family-wise error; BH-adjusted p-values are not Storey q-values. "
         "BH guarantees require independence or PRDS, which has not been established here.\n\n"
         "Physical-distance signals are not independently defined QTLs or LD blocks. "

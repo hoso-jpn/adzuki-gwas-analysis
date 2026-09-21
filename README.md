@@ -1,5 +1,8 @@
 # adzuki-gwas-analysis
 
+利用許可のある個体データは[量的形質GWAS v1](docs/individual_gwas.md)で解析できる。
+個体別実行と、以下の計算済みsummaryの再解析を別の入口として区別する。
+
 顧客の計算済みGWAS結果は[顧客summary statistics入力 v1](docs/customer_summary.md)で扱う。
 列名・アレル方向・単位・検定familyを明示し、既存Dryad契約とは別の入口を使う。
 
@@ -20,7 +23,7 @@ Miyagi／Shumari／Longxiaodou 4の実FASTA・注釈の取得済み／検証済�
 
 対象データはChien et al. 2025（*Science*）およびDryadで公開されているデータに基づく。
 
-このリポジトリは**新規にGWASを実行するものではなく**、既に公開されているsummary statistics
+既存のDryad解析経路は**GWASを再実行せず**、既に公開されているsummary statistics
 を対象としたpost-hoc（事後）解析・整理・可視化・報告のためのツール群である。QTLの新規発見、
 causal variant（原因変異）の同定、育種マーカーの検証を主張するものではない。
 
@@ -43,13 +46,15 @@ causal variant（原因変異）の同定、育種マーカーの検証を主張
 - 顧客向けMarkdownレポート（executive summary / technical report）の生成
 - 再現性・監査用成果物（checksum、machine-readable manifest）の生成
 
-以下は**実装されていない**（後続Issueとして別途トラッキング）。
+追加のopt-in経路（入力契約・適用範囲は冒頭のリンクを参照）：
 
 - 参照ゲノム別の配列資産・座標契約の整備
 - 関連SNP周辺のフランキング配列抽出
 - ARMSマーカー候補・プライマー設計
-- 顧客提供individual-level genotype/phenotypeによるGWAS実行
-- liftover、LD解析、fine-mapping
+- 顧客summary statisticsの正規化・QC・補正・候補抽出
+- 顧客提供individual-level genotype/phenotypeによる量的形質GWAS（null-REML共分散近似）
+
+自動liftover、LD解析、fine-mapping、実験検証は未実装。
 
 ---
 
@@ -85,7 +90,7 @@ Shumari
 
 ## 科学的な適用範囲と制約
 
-このリポジトリの解析結果を読む前に、以下を必ず理解すること。
+以下は既存のDryad summary解析経路の制約。個体別GWASのモデル制約は上記専用文書を参照。
 
 - **GWASを再実行していない。** 公開済みsummary statisticsのpost-hoc再解析・可視化のみ。
 - `pval`は常にlikelihood-ratio-test（LRT）p-value（Dryadのデータ辞書による定義）。
