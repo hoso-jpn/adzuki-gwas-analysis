@@ -1,5 +1,8 @@
 # adzuki-gwas-analysis
 
+顧客の計算済みGWAS結果は[顧客summary statistics入力 v1](docs/customer_summary.md)で扱う。
+列名・アレル方向・単位・検定familyを明示し、既存Dryad契約とは別の入口を使う。
+
 [ARMS計算候補の設計](docs/arms_design.md)は検証済みの候補周辺配列から行う。
 計算候補、実験検証済みマーカー、育種集団で検証済みのパネルを区別する。
 
