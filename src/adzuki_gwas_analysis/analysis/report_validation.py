@@ -95,6 +95,7 @@ class ValidatedAnalysisDir:
     visualization_threshold: float
     clustering_distance: int
     datasets: tuple[ValidatedDataset, ...]
+    analysis_generation: dict[str, object] | None = None
 
 
 def _read_tsv(path: Path) -> pd.DataFrame:
@@ -383,7 +384,9 @@ def _validate_one_dataset(analysis_dir: Path, row: pd.Series) -> ValidatedDatase
     )
 
 
-def validate_analysis_dir(analysis_dir: Path) -> ValidatedAnalysisDir:
+def validate_analysis_dir(
+    analysis_dir: Path, *, require_provenance: bool = False
+) -> ValidatedAnalysisDir:
     """Read and cross-check every artifact under a candidate-enabled ``batch`` output.
 
     Raises :class:`~adzuki_gwas_analysis.errors.ReportRequiresCandidateEnabledBatchError`
@@ -394,6 +397,9 @@ def validate_analysis_dir(analysis_dir: Path) -> ValidatedAnalysisDir:
     is a normal, fully-checked state (header-only files, ``n_candidates=0``), not an error.
     """
     analysis_dir = Path(analysis_dir)
+    from adzuki_gwas_analysis.provenance import validate_provenance
+
+    generation = validate_provenance(analysis_dir, required=require_provenance)
     batch_summary_path = _require_safe_relative_path(
         analysis_dir, "batch_summary.tsv", dataset_id=None
     )
@@ -424,4 +430,5 @@ def validate_analysis_dir(analysis_dir: Path) -> ValidatedAnalysisDir:
         visualization_threshold=visualization_threshold,
         clustering_distance=clustering_distance,
         datasets=datasets,
+        analysis_generation=generation,
     )

@@ -1,6 +1,8 @@
 # adzuki-gwas-analysis
 
 参照配列を使う後続処理の入口は[参照ゲノム資産の契約 v1](docs/reference_bundle.md)を参照。
+納品向け解析には[解析生成時の来歴](docs/analysis_provenance.md)の
+`--record-provenance`／`--require-provenance`を使用する。
 Miyagi／Shumari／Longxiaodou 4の実FASTA・注釈の取得済み／検証済みを意味しない。
 
 アズキ（*Vigna angularis*）を対象とした、公開GWAS summary statistics（GWAS要約統計量）の

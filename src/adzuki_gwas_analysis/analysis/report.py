@@ -41,6 +41,7 @@ import tempfile
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 
@@ -56,6 +57,7 @@ from adzuki_gwas_analysis.analysis.report_validation import (
     validate_analysis_dir,
 )
 from adzuki_gwas_analysis.loader import compute_sha256
+from adzuki_gwas_analysis.provenance import CONTRACT_FILE, PROVENANCE_FILE, validate_provenance
 
 #: Packages whose installed version is recorded in software_versions.json. Deliberately a
 #: fixed, curated list -- never a dump of every installed package or of os.environ.
@@ -205,6 +207,18 @@ def _copy_all_artifacts(
                     src, staging_dir / relative_path, relative_path=relative_path, role=role
                 )
             )
+    if validated.analysis_generation is not None:
+        for name in (PROVENANCE_FILE, CONTRACT_FILE):
+            relative_path = "artifacts/" + name
+            artifacts.append(
+                _copy_artifact(
+                    validated.analysis_dir / name,
+                    staging_dir / relative_path,
+                    relative_path=relative_path,
+                    role="analysis_generation_provenance",
+                )
+            )
+        validate_provenance(staging_dir / "artifacts", required=True)
     return artifacts
 
 
@@ -261,7 +275,12 @@ def _write_dataset_artifact_bundle(
 
     software_versions_relative = "reproducibility/software_versions.json"
     software_versions_doc = build_software_versions(
-        report_generation_environment=_report_generation_environment()
+        report_generation_environment=_report_generation_environment(),
+        analysis_generation_environment=(
+            cast(dict[str, object], validated.analysis_generation["environment"])
+            if validated.analysis_generation is not None
+            else None
+        ),
     )
     _atomic_write_json(software_versions_doc, staging_dir / software_versions_relative)
     artifacts.append(
@@ -274,7 +293,9 @@ def _write_dataset_artifact_bundle(
     return artifacts
 
 
-def run_report(*, analysis_dir: Path, output_dir: Path) -> ReportOutcome:
+def run_report(
+    *, analysis_dir: Path, output_dir: Path, require_provenance: bool = False
+) -> ReportOutcome:
     """Validate ``--analysis-dir``, then publish the full delivery package to ``--output-dir``.
 
     Every read of ``--analysis-dir`` happens inside
@@ -285,7 +306,7 @@ def run_report(*, analysis_dir: Path, output_dir: Path) -> ReportOutcome:
     any failure at any step removes the staging directory and leaves ``--output-dir``
     untouched.
     """
-    validated = validate_analysis_dir(Path(analysis_dir))
+    validated = validate_analysis_dir(Path(analysis_dir), require_provenance=require_provenance)
 
     output_dir = Path(output_dir)
     check_output_dir_is_safe(output_dir)
