@@ -1,5 +1,8 @@
 # adzuki-gwas-analysis
 
+[プライマー計算確認](docs/primer_specificity.md)は、明示した検索規則での全参照amplicon確認と
+任意のPrimer3熱力学確認を行う。計算確認を実験検証状態へ自動昇格しない。
+
 [ARMS実験結果の取り込みと検証状態](docs/assay_review.md)で、引き渡し、返却結果のQC、
 call rate・一致率、担当者レビュー、設計版と再設計履歴を管理する。
 測定前・合成データの候補は検証済みパネルとして出力しない。
