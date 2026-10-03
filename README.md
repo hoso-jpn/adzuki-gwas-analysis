@@ -3,6 +3,9 @@
 [形質選抜の証拠](docs/trait_utility.md)をassayの遺伝型判定性能と別の軸で管理する。
 遺伝型判定の`population_validated`だけで、形質選抜の有効性を検証済みとしない。
 
+[プライマー計算確認](docs/primer_specificity.md)は、明示した検索規則での全参照amplicon確認と
+任意のPrimer3熱力学確認を行う。計算確認を実験検証状態へ自動昇格しない。
+
 [ARMS実験結果の取り込みと検証状態](docs/assay_review.md)で、引き渡し、返却結果のQC、
 call rate・一致率、担当者レビュー、設計版と再設計履歴を管理する。
 測定前・合成データの候補は検証済みパネルとして出力しない。

@@ -16,6 +16,9 @@ dependencies = [
 adzuki-gwas-validate = "adzuki_gwas_analysis.cli:main"
 adzuki-gwas-analyze = "adzuki_gwas_analysis.analysis.cli:main"
 
+[project.optional-dependencies]
+thermodynamics = ["primer3-py==2.3.1"]
+
 [dependency-groups]
 dev = [
     "ruff>=0.6",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,7 @@ def run_assay_review(
     metadata_path: Path | None = None,
     previous_review: Path | None = None,
     redesign_history: Path | None = None,
+    specificity_dir: Path | None = None,
     max_rows: int = 100_000,
 ) -> None:
     if (results is None) != (metadata_path is None) or max_rows <= 0:
@@ -69,6 +71,16 @@ def run_assay_review(
     if record is None or record["operation"] != "arms_design":
         raise ValueError("assay review requires verified ARMS design provenance")
     inputs = _record_inputs(design_dir, "design")
+    confirmation = None
+    if specificity_dir is not None:
+        confirmation = validate_provenance(specificity_dir, required=True)
+        if (
+            confirmation is None
+            or confirmation["operation"] != "primer_specificity"
+            or confirmation["parameters"].get("design_run_id") != record["run_id"]
+        ):
+            raise ValueError("primer confirmation must refer to this exact design run")
+        inputs.update(_record_inputs(specificity_dir, "primer_confirmation"))
     designs: dict[str, dict[str, str]] = {}
     for row in read_tsv(design_dir / "primer_candidates.tsv", PRIMER_FIELDS):
         if row["design_id"] in designs or any(not row[key] for key in IDENTITY_FIELDS):
@@ -299,6 +311,15 @@ def run_assay_review(
             ]
         )
         (stage / "assay_review_report.md").write_text("\n".join(report), encoding="utf-8")
+        if specificity_dir is not None:
+            destination = stage / "primer_confirmation"
+            destination.mkdir()
+            for filename in (
+                "specificity_review.tsv",
+                "thermodynamics.json",
+                "specificity_report.md",
+            ):
+                shutil.copyfile(specificity_dir / filename, destination / filename)
         finish_provenance(
             stage,
             operation="assay_review",
@@ -311,6 +332,7 @@ def run_assay_review(
                 "max_rows": max_rows,
                 "design_run_id": record["run_id"],
                 "previous_review_run_id": previous_record["run_id"] if previous_record else None,
+                "primer_confirmation_run_id": confirmation["run_id"] if confirmation else None,
             },
         )
 
@@ -319,7 +341,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     for flag in ("design-dir", "output-dir"):
         parser.add_argument("--" + flag, type=Path, required=True)
-    for flag in ("results", "metadata-path", "previous-review", "redesign-history"):
+    for flag in (
+        "results",
+        "metadata-path",
+        "previous-review",
+        "redesign-history",
+        "specificity-dir",
+    ):
         parser.add_argument("--" + flag, type=Path)
     parser.add_argument("--max-rows", type=int, default=100_000)
     try:

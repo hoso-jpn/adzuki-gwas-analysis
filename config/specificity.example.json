@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "max_mismatches": 1,
+  "exact_3prime_bases": 3,
+  "min_product_bp": 50,
+  "max_product_bp": 500,
+  "max_hits_per_primer": 1000,
+  "max_candidate_windows": 200000,
+  "max_products_per_reaction": 10000,
+  "max_reference_bases": 1000000000,
+  "max_contig_bases": 100000000,
+  "max_designs": 100,
+  "thermodynamics": {
+    "enabled": true,
+    "mv_conc": 50.0,
+    "dv_conc": 1.5,
+    "dntp_conc": 0.6,
+    "dna_conc": 50.0,
+    "temp_c": 37.0,
+    "max_loop": 30,
+    "max_structure_tm_C": 45.0
+  }
+}
