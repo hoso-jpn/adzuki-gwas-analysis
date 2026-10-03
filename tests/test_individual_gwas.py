@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 from scipy import stats
 
+from adzuki_gwas_analysis.gwas_validation import compare_results
 from adzuki_gwas_analysis.individual_gwas import run_individual_gwas
 from adzuki_gwas_analysis.individual_inputs import load_config, load_individual_inputs
 from adzuki_gwas_analysis.loader import compute_sha256
@@ -221,6 +222,43 @@ class IndividualGWASTests(unittest.TestCase):
         )
         self.assertTrue((outputs[0] / "manhattan.png").is_file())
         self.assertTrue((outputs[0] / "qq.png").is_file())
+        # Feed the producer's real normalized artifact into the evidence consumer;
+        # avoid a hand-written fixture silently drifting from the canonical columns.
+        normalized = outputs[0] / "normalized_summary.tsv"
+        contract = dict(
+            dataset_id="synthetic_trait",
+            assembly_id="synthetic-v1",
+            input_genotypes_sha256=compute_sha256(self.paths["genotypes"]),
+            input_phenotypes_sha256=compute_sha256(self.paths["phenotypes"]),
+            covariates_sha256=compute_sha256(self.paths["samples"]),
+            model="quantitative-LMM",
+            covariance_strategy="fixed-null-global",
+            test="two-sided-t",
+            effect_encoding="ALT_0_1_2",
+            engine="internal",
+            version="1",
+            license="MIT",
+            data_scope="synthetic",
+        )
+        comparison_plan = self.root / "comparison.json"
+        comparison_plan.write_text(
+            json.dumps(
+                dict(
+                    schema_version=1,
+                    left_sha256=compute_sha256(normalized),
+                    right_sha256=compute_sha256(normalized),
+                    left_contract=contract,
+                    right_contract={**contract, "engine": "transport-fixture"},
+                    beta_atol=0,
+                    se_atol=0,
+                    logp_atol=0,
+                )
+            )
+        )
+        compare_results(normalized, normalized, comparison_plan, self.root / "compared")
+        self.assertEqual(
+            json.loads((self.root / "compared/comparison.json").read_text())["n_variants"], 25
+        )
 
     def test_pca_and_covariate_contract(self):
         self.write_config(n_pcs=2)

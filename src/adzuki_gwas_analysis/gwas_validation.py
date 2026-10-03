@@ -283,17 +283,17 @@ def compare_results(left: Path, right: Path, plan_path: Path, output_dir: Path) 
                 "effect_allele",
                 "other_allele",
                 "beta",
-                "standard_error",
+                "se",
                 "neg_log10_pvalue",
             ),
         ):
             identity = (row["chr"], int(row["pos"]), row["ref"], row["alt"])
             if identity in records:
                 raise ValueError("duplicate comparison variant identity")
-            for field in ("beta", "standard_error", "neg_log10_pvalue"):
+            for field in ("beta", "se", "neg_log10_pvalue"):
                 if not math.isfinite(float(row[field])):
                     raise ValueError("nonfinite comparison value")
-            if float(row["standard_error"]) <= 0 or float(row["neg_log10_pvalue"]) < 0:
+            if float(row["se"]) <= 0 or float(row["neg_log10_pvalue"]) < 0:
                 raise ValueError("invalid comparison SE/log-p")
             records[identity] = row
         datasets.append(records)
@@ -313,14 +313,14 @@ def compare_results(left: Path, right: Path, plan_path: Path, output_dir: Path) 
             raise ValueError("comparison effect orientation mismatch; normalize explicitly first")
         delta = {
             field: abs(float(first[field]) - float(second[field]))
-            for field in ("beta", "standard_error", "neg_log10_pvalue")
+            for field in ("beta", "se", "neg_log10_pvalue")
         }
         rows.append(
             {
                 **{field: first[field] for field in IDENTITY},
                 **delta,
                 "within_tolerance": delta["beta"] <= plan["beta_atol"]
-                and delta["standard_error"] <= plan["se_atol"]
+                and delta["se"] <= plan["se_atol"]
                 and delta["neg_log10_pvalue"] <= plan["logp_atol"],
             }
         )

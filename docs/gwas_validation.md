@@ -41,7 +41,7 @@ CIの少数反復fixtureは処理/判定の回帰検査のみ。
 `gwas_validation compare --left normalized.tsv --right external-normalized.tsv
 --plan-path comparison.json --output-dir /case/comparison`を使用する。
 外部エンジン結果は既存`customer_summary`で明示的に正規化してから渡す。
-必須列はchr/pos/ref/alt/effect_allele/other_allele/beta/standard_error/neg_log10_pvalue。
+必須列はchr/pos/ref/alt/effect_allele/other_allele/beta/se/neg_log10_pvalue。
 variant集合とeffect方向の不一致は拒否し、推測flipしない。
 
 比較計画JSONはschema_version=1、両TSVのleft_sha256/right_sha256、

@@ -77,7 +77,7 @@ class EvidenceTests(unittest.TestCase):
             "effect_allele",
             "other_allele",
             "beta",
-            "standard_error",
+            "se",
             "neg_log10_pvalue",
         )
         row = dict(zip(columns, ("a", 1, "A", "C", "C", "A", 0.2, 0.1, 1.4), strict=True))
