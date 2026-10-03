@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "seed": 483,
+  "replicates": 100,
+  "n_samples": 64,
+  "n_markers": 60,
+  "alpha": 0.05,
+  "max_null_upper95": 0.15,
+  "min_power_lower95": 0.50,
+  "kinship_mode": "loco",
+  "scenarios": ["null_unrelated", "null_related", "local_effect", "missing", "rare", "boundary"]
+}
