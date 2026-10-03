@@ -10,6 +10,7 @@ from scipy import stats
 
 from adzuki_gwas_analysis.individual_gwas import run_individual_gwas
 from adzuki_gwas_analysis.individual_inputs import load_config, load_individual_inputs
+from adzuki_gwas_analysis.loader import compute_sha256
 from adzuki_gwas_analysis.mixed_model import fit_null, test_marker
 from adzuki_gwas_analysis.provenance import validate_provenance
 from adzuki_gwas_analysis.reference import load_reference_bundle
@@ -234,3 +235,46 @@ class IndividualGWASTests(unittest.TestCase):
         model = json.loads((output / "model.json").read_text())
         self.assertEqual(model["n_pcs"], 2)
         self.assertIn("block_numeric", model["covariate_transform"])
+
+    def test_loco_end_to_end_and_single_chromosome_refusal(self):
+        self.write_config(kinship_mode="loco")
+        with self.assertRaisesRegex(ValueError, "other chromosomes"):
+            run_individual_gwas(
+                **self.paths,
+                bundle_path=self.bundle_path,
+                config_path=self.config_path,
+                output_dir=self.root / "invalid-loco",
+            )
+        fasta = self.bundle_path.parent / "reference.fasta"
+        fai = self.bundle_path.parent / "reference.fasta.fai"
+        old_fasta, old_fai = compute_sha256(fasta), compute_sha256(fai)
+        original = fasta.read_bytes()
+        fasta.write_bytes(original + original.replace(b">chrA", b">chrB", 1))
+        fai.write_text(fai.read_text() + f"chrB\t320\t{len(original) + 6}\t40\t41\n")
+        self.bundle_path.write_text(
+            self.bundle_path.read_text()
+            .replace(old_fasta, compute_sha256(fasta))
+            .replace(old_fai, compute_sha256(fai))
+        )
+        variants = list(read_tsv(self.paths["variants"]))
+        for index, row in enumerate(variants):
+            if index % 2:
+                row["chr"] = "chrB"
+        write_tsv(self.paths["variants"], variants[0].keys(), variants)
+        output = self.root / "loco"
+        run_individual_gwas(
+            **self.paths,
+            bundle_path=self.bundle_path,
+            config_path=self.config_path,
+            output_dir=output,
+        )
+        result = json.loads((output / "model.json").read_text())
+        self.assertIsNone(result["covariance_ratio"])
+        self.assertEqual(len(result["loco_models"]), 2)
+        self.assertEqual(result["commercial_validation"], "not_assessed")
+
+    def test_unsupported_design_and_ploidy_are_not_silently_treated_as_diploid(self):
+        for overrides in ({"ploidy": 4}, {"observation_design": "repeated_plots"}):
+            self.write_config(**overrides)
+            with self.assertRaisesRegex(ValueError, "supported scope"):
+                self.load()

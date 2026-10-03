@@ -15,6 +15,7 @@ from adzuki_gwas_analysis.customer_summary import (
     normalize_row,
 )
 from adzuki_gwas_analysis.individual_inputs import load_config, load_individual_inputs
+from adzuki_gwas_analysis.kinship import kinship_for_chromosome, kinship_matrix
 from adzuki_gwas_analysis.mixed_model import ENGINE, fit_null, test_marker
 from adzuki_gwas_analysis.provenance import (
     finish_provenance,
@@ -95,8 +96,7 @@ def run_individual_gwas(
     af = frequency[retained]
     genotype = data.dosage[:, retained].copy()
     genotype = np.where(np.isnan(genotype), 2 * af, genotype)
-    centered = genotype - 2 * af
-    kinship = centered @ centered.T / float(2 * np.sum(af * (1 - af)))
+    kinship = kinship_matrix(genotype, af)
     covariates = data.covariates
     pcs = np.empty((len(data.sample_ids), 0))
     eigenvalues: list[float] = []
@@ -112,6 +112,22 @@ def run_individual_gwas(
         eigenvalues = [float(v) for v in values[::-1][: config["n_pcs"]]]
         covariates = np.column_stack((covariates, pcs))
     model = fit_null(data.phenotype, covariates, kinship)
+    chromosome_models = {}
+    loco_metadata = []
+    if config["kinship_mode"] == "loco":
+        chromosomes = [data.markers[index]["chr"] for index in retained]
+        for chromosome in dict.fromkeys(chromosomes):
+            local_k, n_background = kinship_for_chromosome(genotype, af, chromosomes, chromosome)
+            local_model = fit_null(data.phenotype, covariates, local_k)
+            chromosome_models[chromosome] = local_model
+            loco_metadata.append(
+                {
+                    "chromosome": chromosome,
+                    "n_background_markers": n_background,
+                    "covariance_ratio": local_model.delta,
+                    "null_reml_boundary": local_model.boundary,
+                }
+            )
     meta = {
         key: config[key]
         for key in (
@@ -143,7 +159,8 @@ def run_individual_gwas(
     for offset, index in enumerate(retained):
         marker = data.markers[index]
         try:
-            beta, se, logp = test_marker(model, genotype[:, offset])
+            marker_model = chromosome_models.get(marker["chr"], model)
+            beta, se, logp = test_marker(marker_model, genotype[:, offset])
         except ValueError as exc:
             if str(exc) != "marker is collinear with covariates":
                 raise
@@ -173,6 +190,8 @@ def run_individual_gwas(
         row["pvalue_source"] = "individual_engine_log_t_tail"
         rows.append(row)
         marker_qc[index]["status"] = "tested"
+    if not rows:
+        raise ValueError("no testable markers remain after covariate projection")
     contigs = [contig.name for contig in bundle.contigs]
     candidates = adjust_and_cluster(
         rows,
@@ -217,11 +236,18 @@ def run_individual_gwas(
                 "schema_version": 1,
                 "engine": ENGINE,
                 "model": "y = intercept + covariates + PC + beta*ALT_dosage + u + e",
-                "kinship": "global VanRaden method 1: ZZ' / (2 sum(p*(1-p)))",
+                "kinship": (
+                    "global VanRaden method 1: ZZ' / (2 sum(p*(1-p)))"
+                    if config["kinship_mode"] == "global"
+                    else "LOCO VanRaden method 1; exclude the full test chromosome"
+                ),
+                "exported_kinship_npy": "global K; LOCO K is reconstructed by chromosome exclusion",
                 "imputation": "per-marker observed-cohort mean ALT dosage",
-                "covariance_ratio": model.delta,
+                "covariance_ratio": model.delta if config["kinship_mode"] == "global" else None,
                 "ratio_bounds_log": [-12, 12],
-                "null_reml_boundary": model.boundary,
+                "null_reml_boundary": model.boundary
+                if config["kinship_mode"] == "global"
+                else any(item["null_reml_boundary"] for item in loco_metadata),
                 "residual_df": model.residual_df,
                 "pvalue": "two-sided t; covariance ratio fitted under null and held fixed",
                 "covariate_transform": data.covariate_transform,
@@ -232,9 +258,14 @@ def run_individual_gwas(
                 "n_input_markers": len(data.markers),
                 "n_kinship_markers": len(retained),
                 "n_tests": len(rows),
+                "kinship_mode": config["kinship_mode"],
+                "loco_models": loco_metadata,
+                "commercial_validation": "not_assessed",
                 "warnings": [
-                    "approximate covariance; no per-marker REML or LOCO",
-                    "global K can cause proximal contamination",
+                    "approximate covariance; no per-marker REML",
+                    "global K can cause proximal contamination"
+                    if config["kinship_mode"] == "global"
+                    else "LOCO excludes the test chromosome; commercial calibration pending",
                     "no real-cohort or Seedcore-01 validation performed",
                 ],
                 "configuration": config,

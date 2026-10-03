@@ -45,6 +45,9 @@ DEFAULTS: dict[str, Any] = {
     "covariates": [],
     "alpha": 0.05,
     "fdr_level": 0.05,
+    "kinship_mode": "global",
+    "ploidy": 2,
+    "observation_design": "one_observation_per_sample",
 }
 
 
@@ -73,6 +76,15 @@ def load_config(path: Path, bundle: ReferenceBundle) -> dict[str, Any]:
     ):
         raise ValueError("unknown individual GWAS config field")
     config = {**DEFAULTS, **config}
+    if (
+        config["kinship_mode"] not in ("global", "loco")
+        or type(config["ploidy"]) is not int
+        or config["ploidy"] != 2
+        or config["observation_design"] != "one_observation_per_sample"
+    ):
+        raise ValueError("supported scope is diploid, one observation per sample, global/loco K")
+    if config["kinship_mode"] == "loco" and config["n_pcs"] != 0:
+        raise ValueError("LOCO v1 requires n_pcs=0; supply independently justified covariates")
     for key in ("max_samples", "max_markers", "max_genotype_cells", "n_pcs", "clustering_distance"):
         if type(config.get(key)) is not int or config[key] < 0:
             raise ValueError(f"{key} requires an explicit nonnegative integer")
