@@ -8,8 +8,10 @@ from pathlib import Path
 import numpy as np
 from scipy import stats
 
+from adzuki_gwas_analysis.gwas_validation import compare_results
 from adzuki_gwas_analysis.individual_gwas import run_individual_gwas
 from adzuki_gwas_analysis.individual_inputs import load_config, load_individual_inputs
+from adzuki_gwas_analysis.loader import compute_sha256
 from adzuki_gwas_analysis.mixed_model import fit_null, test_marker
 from adzuki_gwas_analysis.provenance import validate_provenance
 from adzuki_gwas_analysis.reference import load_reference_bundle
@@ -220,6 +222,43 @@ class IndividualGWASTests(unittest.TestCase):
         )
         self.assertTrue((outputs[0] / "manhattan.png").is_file())
         self.assertTrue((outputs[0] / "qq.png").is_file())
+        # Feed the producer's real normalized artifact into the evidence consumer;
+        # avoid a hand-written fixture silently drifting from the canonical columns.
+        normalized = outputs[0] / "normalized_summary.tsv"
+        contract = dict(
+            dataset_id="synthetic_trait",
+            assembly_id="synthetic-v1",
+            input_genotypes_sha256=compute_sha256(self.paths["genotypes"]),
+            input_phenotypes_sha256=compute_sha256(self.paths["phenotypes"]),
+            covariates_sha256=compute_sha256(self.paths["samples"]),
+            model="quantitative-LMM",
+            covariance_strategy="fixed-null-global",
+            test="two-sided-t",
+            effect_encoding="ALT_0_1_2",
+            engine="internal",
+            version="1",
+            license="MIT",
+            data_scope="synthetic",
+        )
+        comparison_plan = self.root / "comparison.json"
+        comparison_plan.write_text(
+            json.dumps(
+                dict(
+                    schema_version=1,
+                    left_sha256=compute_sha256(normalized),
+                    right_sha256=compute_sha256(normalized),
+                    left_contract=contract,
+                    right_contract={**contract, "engine": "transport-fixture"},
+                    beta_atol=0,
+                    se_atol=0,
+                    logp_atol=0,
+                )
+            )
+        )
+        compare_results(normalized, normalized, comparison_plan, self.root / "compared")
+        self.assertEqual(
+            json.loads((self.root / "compared/comparison.json").read_text())["n_variants"], 25
+        )
 
     def test_pca_and_covariate_contract(self):
         self.write_config(n_pcs=2)
@@ -234,3 +273,46 @@ class IndividualGWASTests(unittest.TestCase):
         model = json.loads((output / "model.json").read_text())
         self.assertEqual(model["n_pcs"], 2)
         self.assertIn("block_numeric", model["covariate_transform"])
+
+    def test_loco_end_to_end_and_single_chromosome_refusal(self):
+        self.write_config(kinship_mode="loco")
+        with self.assertRaisesRegex(ValueError, "other chromosomes"):
+            run_individual_gwas(
+                **self.paths,
+                bundle_path=self.bundle_path,
+                config_path=self.config_path,
+                output_dir=self.root / "invalid-loco",
+            )
+        fasta = self.bundle_path.parent / "reference.fasta"
+        fai = self.bundle_path.parent / "reference.fasta.fai"
+        old_fasta, old_fai = compute_sha256(fasta), compute_sha256(fai)
+        original = fasta.read_bytes()
+        fasta.write_bytes(original + original.replace(b">chrA", b">chrB", 1))
+        fai.write_text(fai.read_text() + f"chrB\t320\t{len(original) + 6}\t40\t41\n")
+        self.bundle_path.write_text(
+            self.bundle_path.read_text()
+            .replace(old_fasta, compute_sha256(fasta))
+            .replace(old_fai, compute_sha256(fai))
+        )
+        variants = list(read_tsv(self.paths["variants"]))
+        for index, row in enumerate(variants):
+            if index % 2:
+                row["chr"] = "chrB"
+        write_tsv(self.paths["variants"], variants[0].keys(), variants)
+        output = self.root / "loco"
+        run_individual_gwas(
+            **self.paths,
+            bundle_path=self.bundle_path,
+            config_path=self.config_path,
+            output_dir=output,
+        )
+        result = json.loads((output / "model.json").read_text())
+        self.assertIsNone(result["covariance_ratio"])
+        self.assertEqual(len(result["loco_models"]), 2)
+        self.assertEqual(result["commercial_validation"], "not_assessed")
+
+    def test_unsupported_design_and_ploidy_are_not_silently_treated_as_diploid(self):
+        for overrides in ({"ploidy": 4}, {"observation_design": "repeated_plots"}):
+            self.write_config(**overrides)
+            with self.assertRaisesRegex(ValueError, "supported scope"):
+                self.load()

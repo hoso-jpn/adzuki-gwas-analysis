@@ -223,6 +223,19 @@ def run_assay_review(
             stage / "assay_metrics.tsv", ("design_id", "candidate_id", *assay_metrics([])), metrics
         )
         write_tsv(
+            stage / "evidence_axes.tsv",
+            ("design_id", "genotyping_validation", "trait_utility", "reason"),
+            [
+                {
+                    "design_id": row["design_id"],
+                    "genotyping_validation": row["state"],
+                    "trait_utility": "not_assessed",
+                    "reason": "assay_accuracy_is_not_trait_utility",
+                }
+                for row in states
+            ],
+        )
+        write_tsv(
             stage / "design_failures.tsv",
             ("candidate_id", "design_count", "rejection_reasons"),
             [row for row in markers if int(row["design_count"]) == 0],
@@ -291,6 +304,9 @@ def run_assay_review(
                 "an analyst must review acceptance within the declared population and conditions. "
                 "No laboratory orders, purchases, messages or experiments "
                 "are performed by this command.",
+                "Genotyping validation does not establish trait-selection utility. "
+                "The independent trait_utility review records that evidence separately; "
+                "evidence_axes.tsv remains not_assessed for assay-only deliveries.",
                 "",
             ]
         )
